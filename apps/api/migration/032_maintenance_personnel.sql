@@ -1,0 +1,22 @@
+CREATE TABLE maintenance_personnel (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  personnel_code VARCHAR(100) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  gender VARCHAR(16) NULL,
+  age INT NULL,
+  account VARCHAR(100) NULL,
+  position VARCHAR(160) NULL,
+  employment_type VARCHAR(64) NULL,
+  mobile VARCHAR(32) NULL,
+  org_province VARCHAR(160) NOT NULL,
+  org_company VARCHAR(200) NOT NULL,
+  org_region VARCHAR(160) NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'active',
+  deleted_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_maintenance_personnel_code_org (personnel_code, org_company, org_region),
+  KEY idx_maintenance_personnel_org_status (org_province, org_company, org_region, status, deleted_at),
+  KEY idx_maintenance_personnel_name (name),
+  KEY idx_maintenance_personnel_mobile (mobile)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

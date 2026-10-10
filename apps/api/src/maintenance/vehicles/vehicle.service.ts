@@ -1,0 +1,7 @@
+import { Injectable } from '@nestjs/common'; import { InjectRepository } from '@nestjs/typeorm'; import { Repository } from 'typeorm'; import type { MaintenanceListQuery } from '@biz-reporting/shared-types'; import { MaintenanceVehicleEntity } from './vehicle.entity'; import { baseQuery, conflict, idOr404, newId, pageOf, requireText } from '../maintenance.crud'; import { CreateVehicleDto, UpdateVehicleDto } from './vehicle.dto';
+@Injectable() export class MaintenanceVehicleService { constructor(@InjectRepository(MaintenanceVehicleEntity) private readonly repo: Repository<MaintenanceVehicleEntity>) {}
+  async list(q: MaintenanceListQuery) { const {page,pageSize}=pageOf(q); const [items,total]=await baseQuery(this.repo,'v',q).orderBy('v.updatedAt','DESC').skip((page-1)*pageSize).take(pageSize).getManyAndCount(); return {items,total,page,pageSize}; }
+  async create(dto:CreateVehicleDto){const e=this.repo.create({...dto,plateNumber:requireText(dto.plateNumber,'车牌号'),id:newId(),status:'active',deletedAt:null});try{return await this.repo.save(e);}catch(x){return conflict(x);}}
+  async update(id:string,dto:UpdateVehicleDto){const e=idOr404(await this.repo.findOneBy({id}),'车辆');Object.assign(e,dto);try{return await this.repo.save(e);}catch(x){return conflict(x);}}
+  async remove(id:string){const e=idOr404(await this.repo.findOneBy({id}),'车辆');e.status='inactive';e.deletedAt=new Date();await this.repo.save(e);return{id,deleted:true};}
+}

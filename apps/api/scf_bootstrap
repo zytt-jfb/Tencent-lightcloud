@@ -1,0 +1,31 @@
+#!/bin/bash
+# =============================================================================
+# 经营单元上报系统 - CloudBase Run 启动脚本
+# 放置于 apps/api/ 根目录，部署时与 Dockerfile 配合使用
+#
+# 环境变量清单（通过 CloudBase 控制台或 .env 设置）：
+# - PORT: 监听端口（CloudBase 会自动注入 80）
+# - NODE_ENV: production
+# - DB_TYPE: mysql（生产强制 MySQL）
+# - DB_HOST: MySQL 内网地址
+# - DB_PORT: 3306
+# - DB_USERNAME: 数据库用户名
+# - DB_PASSWORD: 数据库密码
+# - DB_DATABASE: 数据库名
+# - DB_SYNC: false（生产禁止自动同步）
+# - FACT_SOURCE_STORAGE_ROOT: 可选的绝对临时目录；默认使用系统临时目录
+# - JWT_SECRET: JWT 签名密钥
+# - JWT_EXPIRES_IN: 8h
+# - CORS_ORIGINS: 允许的跨域来源，逗号分隔
+# - WECHAT_APPID: 微信小程序 appid
+# - WECHAT_SECRET: 微信小程序 secret
+# =============================================================================
+
+set -e
+
+echo "[scf_bootstrap] Starting API server..."
+echo "[scf_bootstrap] NODE_ENV: ${NODE_ENV:-production}"
+echo "[scf_bootstrap] PORT: ${PORT:-80}"
+
+# 使用 node 直接启动编译产物
+exec node dist/main.js

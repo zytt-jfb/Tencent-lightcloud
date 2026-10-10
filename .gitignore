@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Build cache
+.turbo/
+*.tsbuildinfo
+.artifacts/
+**/*.js.map
+**/*.d.ts.map
+
+# Local runtime/test data
+apps/api/data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Shared package compiler output
+packages/**/src/**/*.js
+packages/**/src/**/*.d.ts
+
+# Temporary deployment archives
+biz-reporting-system-clean-deploy.zip
+
+# One-off local verification scripts
+scripts/tmp_*.mjs
+apps/api/tmp_*.mjs
+
+# Local debug snippets
+apps/api/debug-*.cjs
+
+# Uploads
+uploads/
+
+# AI editor config (local)
+.workbuddy/
+.codebuddy/
+.rules/
+codebuddy-plugin/
+.mcp.json
+
+# Generated docs
+CODEBUDDY.md
+
+# Release build output
+/scripts/release/out/

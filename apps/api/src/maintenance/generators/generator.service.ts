@@ -1,0 +1,7 @@
+import { Injectable } from '@nestjs/common'; import { InjectRepository } from '@nestjs/typeorm'; import { Repository } from 'typeorm'; import type { MaintenanceListQuery } from '@biz-reporting/shared-types'; import { MaintenanceGeneratorEntity } from './generator.entity'; import { baseQuery, conflict, idOr404, newId, pageOf, requireText } from '../maintenance.crud'; import { CreateGeneratorDto, UpdateGeneratorDto } from './generator.dto';
+@Injectable() export class MaintenanceGeneratorService { constructor(@InjectRepository(MaintenanceGeneratorEntity) private readonly repo: Repository<MaintenanceGeneratorEntity>) {}
+  async list(q: MaintenanceListQuery) { const { page, pageSize } = pageOf(q); const [items,total]=await baseQuery(this.repo,'g',q).orderBy('g.updatedAt','DESC').skip((page-1)*pageSize).take(pageSize).getManyAndCount(); return {items,total,page,pageSize}; }
+  async create(dto: CreateGeneratorDto) { const entity=this.repo.create({ ...dto, generatorCode: requireText(dto.generatorCode,'油机编号'), id:newId(), status:'active', deletedAt:null }); try{return await this.repo.save(entity);}catch(e){return conflict(e);} }
+  async update(id:string,dto:UpdateGeneratorDto){const e=idOr404(await this.repo.findOneBy({id}),'油机'); Object.assign(e,dto); try{return await this.repo.save(e);}catch(x){return conflict(x);} }
+  async remove(id:string){const e=idOr404(await this.repo.findOneBy({id}),'油机'); e.status='inactive'; e.deletedAt=new Date(); await this.repo.save(e); return {id,deleted:true};}
+}

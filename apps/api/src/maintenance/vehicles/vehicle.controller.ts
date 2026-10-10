@@ -1,0 +1,5 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Public } from '../../common/decorators/public.decorator'; import { BizAuthGuard } from '../../biz-auth/biz-auth.guard'; import { MaintenanceVehicleService } from './vehicle.service'; import { CreateVehicleDto, UpdateVehicleDto } from './vehicle.dto'; import type { MaintenanceListQuery } from '@biz-reporting/shared-types';
+@Controller('biz/maintenance/vehicles') @Public() @UseGuards(BizAuthGuard) @UsePipes(new ValidationPipe({ transform:true, whitelist:true })) export class MaintenanceVehicleController { constructor(private readonly service:MaintenanceVehicleService){} @Get() list(@Query() q:MaintenanceListQuery){return this.service.list(q);} @Post() create(@Body() dto:CreateVehicleDto){return this.service.create(dto);} @Patch(':id') update(@Param('id') id:string,@Body() dto:UpdateVehicleDto){return this.service.update(id,dto);} @Delete(':id') remove(@Param('id') id:string){return this.service.remove(id);} }
+
+

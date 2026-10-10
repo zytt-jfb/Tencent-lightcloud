@@ -1,0 +1,1 @@
+{"name": "@biz-reporting/shared-types", "version": "0.1.0", "private": true, "description": "经营单元上报系统 - 共享 TypeScript 类型定义 (前后端共用)", "main": "dist/index.js", "types": "dist/index.d.ts", "scripts": {"build": "tsc", "typecheck": "tsc --noEmit"}, "devDependencies": {"typescript": "^5.6.3"}}

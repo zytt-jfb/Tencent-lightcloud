@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "policy": "I1 tests require an explicitly isolated environment and never run as part of test:unit.",
+  "entries": [
+    {
+      "id": "mysql-concurrency",
+      "kind": "external-database",
+      "command": "pnpm test:i1:mysql:concurrency",
+      "requiredEnvironment": ["I1_MYSQL_ISOLATED", "I1_MYSQL_HOST", "I1_MYSQL_PORT", "I1_MYSQL_USER", "I1_MYSQL_PASSWORD", "I1_MYSQL_DATABASE"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "mysql-migrations",
+      "kind": "external-database",
+      "command": "pnpm test:i1:mysql:migrations",
+      "requiredEnvironment": ["MIGRATION_TEST_MYSQL_HOST", "MIGRATION_TEST_MYSQL_PORT", "MIGRATION_TEST_MYSQL_USER", "MIGRATION_TEST_MYSQL_PASSWORD"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "dual-chain-tokens",
+      "kind": "external-token",
+      "command": "pnpm test:i1:tokens:dual-chain",
+      "requiredEnvironment": ["BASE", "DUAL_CHAIN_CITY_USER_A_TOKEN", "DUAL_CHAIN_CITY_USER_B_TOKEN"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "real-write-token",
+      "kind": "external-token",
+      "command": "pnpm test:i1:tokens:real-write",
+      "requiredEnvironment": ["BASE", "REAL_WRITE_CITY_USER_TOKEN"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "import-production-loop",
+      "kind": "external-token-database",
+      "command": "pnpm test:i1:tokens:import-loop",
+      "requiredEnvironment": ["BASE", "TEST_DB", "IMPORT_LOOP_OWNER_TOKEN", "IMPORT_LOOP_OUTSIDER_TOKEN", "IMPORT_LOOP_SYSTEM_ADMIN_TOKEN"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "browser-e2e",
+      "kind": "external-browser-account",
+      "command": "pnpm test:i1:browser",
+      "requiredEnvironment": ["PLAYWRIGHT_BASE_URL"],
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    },
+    {
+      "id": "persistent-storage",
+      "kind": "external-persistent-storage",
+      "command": null,
+      "requiredEnvironment": ["FACT_SOURCE_STORAGE_ROOT"],
+      "status": "BLOCKED_MISSING_RUNNER",
+      "checkpointBlocking": false,
+      "releaseBlocking": true
+    }
+  ]
+}

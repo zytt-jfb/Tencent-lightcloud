@@ -1,0 +1,132 @@
+name: biz-reporting
+
+# 阿里云 ECS 部署编排（最纯净版）
+# 服务: mysql(数据库) + api(后端) + frontend(Nginx 静态站+反代) + migrate(一次性建表/迁移)
+# 移除原 NAS 版的 Nginx Proxy Manager 与 Cloudflare 隧道；SSL 建议放在阿里云 SLB / CDN 上终止。
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:?set DB_DATABASE in .env}
+      MYSQL_USER: ${DB_USERNAME:?set DB_USERNAME in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-name-resolve
+    volumes:
+      - ${DATA_ROOT:?set DATA_ROOT in .env}/mysql/data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/biz-reporting.cnf:ro
+    networks:
+      - biz_db
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 2g
+    cpus: 1.5
+
+  # 一次性服务：首次启动执行数据库迁移（建表/增量），由 --profile init 触发。
+  migrate:
+    build:
+      context: ../..
+      dockerfile: deploy/ecs/migrate.Dockerfile
+    profiles: ["init"]
+    environment:
+      NODE_ENV: production
+      DEPLOY_ENV: production
+      DB_TYPE: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_DATABASE: ${DB_DATABASE:?set DB_DATABASE in .env}
+      DB_SYNC: "false"
+      MIGRATION_APPROVED: "true"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - biz_db
+
+  api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DEPLOY_ENV: production
+      DB_TYPE: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:?set DB_USERNAME in .env}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_DATABASE: ${DB_DATABASE:?set DB_DATABASE in .env}
+      DB_POOL_CONNECTION_LIMIT: ${DB_POOL_CONNECTION_LIMIT:-8}
+      DB_POOL_QUEUE_LIMIT: ${DB_POOL_QUEUE_LIMIT:-100}
+      DB_SYNC: "false"
+      DB_LOGGING: ${DB_LOGGING:-false}
+      FACT_SOURCE_STORAGE_ROOT: /tmp/biz-reporting-source-files
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+      JWT_ISSUER: ${JWT_ISSUER:-biz-reporting-api}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-biz-reporting-clients}
+      AUTH_SECURITY_HMAC_KEY: ${AUTH_SECURITY_HMAC_KEY:?set AUTH_SECURITY_HMAC_KEY in .env}
+      AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-60000}
+      AUTH_RATE_LIMIT_IP_MAX: ${AUTH_RATE_LIMIT_IP_MAX:-5}
+      AUTH_ACCOUNT_WINDOW_MS: ${AUTH_ACCOUNT_WINDOW_MS:-900000}
+      AUTH_ACCOUNT_MAX_FAILURES: ${AUTH_ACCOUNT_MAX_FAILURES:-5}
+      AUTH_ACCOUNT_BLOCK_MS: ${AUTH_ACCOUNT_BLOCK_MS:-900000}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      READINESS_CACHE_MS: ${READINESS_CACHE_MS:-5000}
+      READINESS_TIMEOUT_MS: ${READINESS_TIMEOUT_MS:-2000}
+      CORS_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
+      WECHAT_APPID: ${WECHAT_APPID:-}
+      WECHAT_SECRET: ${WECHAT_SECRET:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - biz_edge
+      - biz_db
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health/live >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/ecs/frontend.Dockerfile
+    restart: unless-stopped
+    # 前端直出 80 端口；生产环境建议在阿里云 SLB / CDN 上终止 HTTPS 后回源到此端口。
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - biz_edge
+    mem_limit: 256m
+    cpus: 0.5
+
+networks:
+  biz_edge:
+    name: biz-reporting_edge
+    driver: bridge
+  biz_db:
+    name: biz-reporting_db
+    driver: bridge
+    internal: true
