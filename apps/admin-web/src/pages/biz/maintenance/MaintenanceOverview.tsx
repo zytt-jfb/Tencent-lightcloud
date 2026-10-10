@@ -32,7 +32,7 @@ export default function MaintenanceOverview() {
   const reminders: Reminder[] = [];
   const regions: Record<string, { region: string; personnel: number; vehicles: number; generators: number }> = {};
   for (const kind of kinds) for (const item of data[kind] ?? []) {
-    const region = `${item.orgProvince} / ${item.orgCompany} / ${item.orgRegion}`;
+    const region = `${item.orgProvince} / ${item.orgCity || '未填写地市'} / ${item.orgRegion} / ${item.orgCompany}`;
     regions[region] ??= { region, personnel: 0, vehicles: 0, generators: 0 };
     regions[region][kind]++;
     const expirations = (item.expirations ?? []) as { title: string; date: string }[];

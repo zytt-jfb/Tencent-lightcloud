@@ -6,9 +6,11 @@
 export interface MaintenanceOrgFields {
   /** 省级组织名称或编码 */
   orgProvince: string;
+  /** 地市名称；历史记录未填写时为空 */
+  orgCity?: string | null;
   /** 公司/分公司名称或编码 */
   orgCompany: string;
-  /** 地市/区域名称或编码 */
+  /** 区县名称或编码 */
   orgRegion: string;
 }
 

@@ -34,6 +34,7 @@ export class MaintenancePersonnelService {
       );
     }
     if (query.orgProvince) queryBuilder.andWhere('personnel.orgProvince = :orgProvince', { orgProvince: query.orgProvince });
+    if (query.orgCity) queryBuilder.andWhere('personnel.orgCity = :orgCity', { orgCity: query.orgCity });
     if (query.orgCompany) queryBuilder.andWhere('personnel.orgCompany = :orgCompany', { orgCompany: query.orgCompany });
     if (query.orgRegion) queryBuilder.andWhere('personnel.orgRegion = :orgRegion', { orgRegion: query.orgRegion });
     if (query.status) queryBuilder.andWhere('personnel.status = :status', { status: query.status });
@@ -76,6 +77,7 @@ export class MaintenancePersonnelService {
         teamAccidentExpiry3: entity.teamAccidentExpiry3,
         personnelCondition: entity.personnelCondition,
         orgProvince: entity.orgProvince,
+        orgCity: entity.orgCity,
         orgCompany: entity.orgCompany,
         orgRegion: entity.orgRegion,
         status: entity.status,

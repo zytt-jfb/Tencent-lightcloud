@@ -3,6 +3,7 @@ export class CreatePersonnelDto {
   @IsString() @IsNotEmpty() @MaxLength(100) personnelCode!: string;
   @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
   @IsString() @IsNotEmpty() @MaxLength(160) orgProvince!: string;
+  @IsOptional() @IsString() @MaxLength(160) orgCity?: string;
   @IsString() @IsNotEmpty() @MaxLength(200) orgCompany!: string;
   @IsString() @IsNotEmpty() @MaxLength(160) orgRegion!: string;
   @IsOptional() @IsString() gender?: string;

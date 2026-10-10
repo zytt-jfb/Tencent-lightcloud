@@ -9,6 +9,7 @@ import type {
 export interface MaintenanceListQuery extends PaginationParams {
   keyword?: string;
   orgProvince?: string;
+  orgCity?: string;
   orgCompany?: string;
   orgRegion?: string;
   status?: MaintenanceRecordStatus;
@@ -22,6 +23,7 @@ export interface CreateMaintenancePersonnelRequest {
   personnelCode: string;
   name: string;
   orgProvince: string;
+  orgCity?: string;
   orgCompany: string;
   orgRegion: string;
   gender?: string;
@@ -57,6 +59,7 @@ export type UpdateMaintenancePersonnelRequest = Partial<CreateMaintenancePersonn
 export interface CreateMaintenanceVehicleRequest {
   plateNumber: string;
   orgProvince: string;
+  orgCity?: string;
   orgCompany: string;
   orgRegion: string;
   vehicleCode?: string;
@@ -83,6 +86,7 @@ export type UpdateMaintenanceVehicleRequest = Partial<CreateMaintenanceVehicleRe
 export interface CreateMaintenanceGeneratorRequest {
   generatorCode: string;
   orgProvince: string;
+  orgCity?: string;
   orgCompany: string;
   orgRegion: string;
   contactName?: string;

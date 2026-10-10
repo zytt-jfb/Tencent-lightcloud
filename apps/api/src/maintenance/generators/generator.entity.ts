@@ -20,6 +20,7 @@ export class MaintenanceGeneratorEntity {
   @Column({ name: 'production_date', type: 'varchar', length: 64, nullable: true }) productionDate: string | null;
   @Column({ name: 'last_maintenance_upload_at', type: 'varchar', length: 64, nullable: true }) lastMaintenanceUploadAt: string | null;
   @Column({ name: 'org_province', type: 'varchar', length: 160 }) orgProvince: string;
+  @Column({ name: 'org_city', type: 'varchar', length: 160, nullable: true }) orgCity: string | null;
   @Column({ name: 'org_company', type: 'varchar', length: 200 }) orgCompany: string;
   @Column({ name: 'org_region', type: 'varchar', length: 160 }) orgRegion: string;
   @Column({ type: 'varchar', length: 16, default: 'active' }) status: 'active' | 'inactive';

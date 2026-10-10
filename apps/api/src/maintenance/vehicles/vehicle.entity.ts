@@ -24,6 +24,7 @@ export class MaintenanceVehicleEntity {
   @Column({ name: 'commercial_insurance_expiry', type: 'varchar', length: 64, nullable: true }) commercialInsuranceExpiry: string | null;
   @Column({ name: 'maintenance_time', type: 'varchar', length: 64, nullable: true }) maintenanceTime: string | null;
   @Column({ name: 'org_province', type: 'varchar', length: 160 }) orgProvince: string;
+  @Column({ name: 'org_city', type: 'varchar', length: 160, nullable: true }) orgCity: string | null;
   @Column({ name: 'org_company', type: 'varchar', length: 200 }) orgCompany: string;
   @Column({ name: 'org_region', type: 'varchar', length: 160 }) orgRegion: string;
   @Column({ type: 'varchar', length: 16, default: 'active' }) status: 'active' | 'inactive';

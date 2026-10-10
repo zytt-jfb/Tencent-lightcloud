@@ -10,6 +10,7 @@ export function baseQuery<T extends object>(repo: Repository<T>, alias: string, 
   const qb = repo.createQueryBuilder(alias).where(`${alias}.deletedAt IS NULL`);
   if (query.keyword?.trim()) qb.andWhere(`(${alias}.name LIKE :keyword OR ${alias}.personnelCode LIKE :keyword OR ${alias}.plateNumber LIKE :keyword OR ${alias}.generatorCode LIKE :keyword OR ${alias}.account LIKE :keyword)`, { keyword: `%${query.keyword.trim()}%` });
   if (query.orgProvince) qb.andWhere(`${alias}.orgProvince = :orgProvince`, { orgProvince: query.orgProvince });
+  if (query.orgCity) qb.andWhere(`${alias}.orgCity = :orgCity`, { orgCity: query.orgCity });
   if (query.orgCompany) qb.andWhere(`${alias}.orgCompany = :orgCompany`, { orgCompany: query.orgCompany });
   if (query.orgRegion) qb.andWhere(`${alias}.orgRegion = :orgRegion`, { orgRegion: query.orgRegion });
   if (query.status) qb.andWhere(`${alias}.status = :status`, { status: query.status });

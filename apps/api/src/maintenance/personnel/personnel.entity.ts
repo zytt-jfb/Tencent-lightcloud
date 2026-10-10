@@ -94,6 +94,9 @@ export class MaintenancePersonnelEntity {
   @Column({ name: 'org_province', type: 'varchar', length: 160 })
   orgProvince: string;
 
+  @Column({ name: 'org_city', type: 'varchar', length: 160, nullable: true })
+  orgCity: string | null;
+
   @Column({ name: 'org_company', type: 'varchar', length: 200 })
   orgCompany: string;
 
