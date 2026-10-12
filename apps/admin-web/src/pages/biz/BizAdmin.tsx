@@ -20,6 +20,7 @@ const ROLE_LABEL: Record<string, string> = {
 const MODULE_LABEL: Record<string, string> = {
   engineeringEntry: '工程管理入口', maintenanceEntry: '维护管理入口', operationEntry: '经营管理入口', systemEntry: '系统设置入口',
   home: '经营首页', analysis: '经营分析', contract: '合同管理', order: '订单管理',
+  maintenance: '维护管理',
   completion: '线下完工', cost: '地市成本', user: '用户管理', settings: '系统设置',
   module: '模块管理', role: '角色管理', region: '省市设置',
   announcement: '公告发布', message: '消息中心',
@@ -36,6 +37,7 @@ const MODULE_DESCRIPTION: Record<string, string> = {
   home: '门户首页和经营入口', analysis: '经营概览、趋势、地市对比和超额清单', contract: '合同查看、上传、分配和费率维护', order: '订单上传、待维护、作废和导出',
   completion: '线下完工填报、提交和审核', cost: '地市成本填报、退回和导出', user: '账号创建、停用、密码和数据范围', settings: '系统参数和预警设置',
   module: '业务模块入口配置', role: '角色与账号权限配置', region: '省份与地市字典的新增、修改和删除',
+  maintenance: '人员、车辆、油机维护数据管理',
   announcement: '公告草稿、发布、撤回和范围管理', message: '流程消息、公告查看和已读处理',
 };
 const PORTAL_GROUPS = new Set(['engineeringEntry', 'maintenanceEntry', 'operationEntry', 'systemEntry']);

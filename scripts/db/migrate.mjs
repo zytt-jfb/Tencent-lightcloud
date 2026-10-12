@@ -737,6 +737,13 @@ async function inspectState(version) {
       adapter.columnExists('maintenance_generators', 'org_city'),
     ]);
   }
+  if (version === '037_maintenance_document_files') {
+    return allOrNothing([
+      adapter.tableExists('maintenance_document_files'),
+      adapter.indexExists('maintenance_document_files', 'idx_maintenance_document_owner'),
+      adapter.indexExists('maintenance_document_files', 'idx_maintenance_document_uploader'),
+    ]);
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

@@ -178,7 +178,6 @@ export default function BizLayout() {
   const moduleName = isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
   const standaloneMaintenanceItems: MenuProps['items'] = [
     { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
-    { key: '/biz/maintenance/documents', label: '资料管理', icon: <FileTextOutlined /> },
     { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined /> },
     { key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: [
       { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined /> },
@@ -197,7 +196,7 @@ export default function BizLayout() {
     '/biz/analysis/overruns', '/biz/analysis/cities', '/biz/analysis/trend', '/biz/analysis',
     '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
     '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
-    '/biz/maintenance/overview', '/biz/maintenance/documents', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators',
+    '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators',
   ];
   const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const activeGroupKey = location.pathname.startsWith('/biz/analysis')

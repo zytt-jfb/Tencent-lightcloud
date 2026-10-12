@@ -8,16 +8,20 @@ import { Repository } from 'typeorm';
 import { conflict, idOr404, newId, requireText } from '../maintenance.crud';
 import { MaintenancePersonnelEntity } from './personnel.entity';
 import { CreatePersonnelDto, UpdatePersonnelDto } from './personnel.dto';
+import { MaintenanceDocumentService } from '../maintenance-document.service';
+import { BizAuthContext } from '../../rbac/rbac.service';
 
 @Injectable()
 export class MaintenancePersonnelService {
   constructor(
     @InjectRepository(MaintenancePersonnelEntity)
     private readonly personnelRepository: Repository<MaintenancePersonnelEntity>,
+    private readonly documents: MaintenanceDocumentService,
   ) {}
 
-  async create(dto: CreatePersonnelDto) { const entity = this.personnelRepository.create({ ...dto, personnelCode: requireText(dto.personnelCode, '人员编号'), name: requireText(dto.name, '姓名'), id: newId(), status: 'active', deletedAt: null }); try { return await this.personnelRepository.save(entity); } catch (error) { return conflict(error); } }
-  async update(id: string, dto: UpdatePersonnelDto) { const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); Object.assign(entity, dto); try { return await this.personnelRepository.save(entity); } catch (error) { return conflict(error); } }
+  async create(dto: CreatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as CreatePersonnelDto & { documentFileIds?: string[] }; const entity = this.personnelRepository.create({ ...fields, personnelCode: requireText(dto.personnelCode, '人员编号'), name: requireText(dto.name, '姓名'), id: newId(), status: 'active', deletedAt: null }); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { await this.personnelRepository.delete(entity.id).catch(() => undefined); return conflict(error); } }
+  async update(id: string, dto: UpdatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as UpdatePersonnelDto & { documentFileIds?: string[] }; const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); Object.assign(entity, fields); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { return conflict(error); } }
+  listDocuments(id: string, auth: BizAuthContext) { return this.documents.list('personnel', id, auth); }
   async remove(id: string) { const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); entity.status = 'inactive'; entity.deletedAt = new Date(); await this.personnelRepository.save(entity); return { id, deleted: true }; }
 
   async list(query: MaintenanceListQuery): Promise<MaintenancePersonnelListResponse> {
@@ -33,10 +37,10 @@ export class MaintenancePersonnelService {
         { keyword },
       );
     }
-    if (query.orgProvince) queryBuilder.andWhere('personnel.orgProvince = :orgProvince', { orgProvince: query.orgProvince });
-    if (query.orgCity) queryBuilder.andWhere('personnel.orgCity = :orgCity', { orgCity: query.orgCity });
-    if (query.orgCompany) queryBuilder.andWhere('personnel.orgCompany = :orgCompany', { orgCompany: query.orgCompany });
-    if (query.orgRegion) queryBuilder.andWhere('personnel.orgRegion = :orgRegion', { orgRegion: query.orgRegion });
+    if (query.orgProvince) queryBuilder.andWhere('personnel.orgProvince LIKE :orgProvince', { orgProvince: `%${query.orgProvince}%` });
+    if (query.orgCity) queryBuilder.andWhere('personnel.orgCity LIKE :orgCity', { orgCity: `%${query.orgCity}%` });
+    if (query.orgCompany) queryBuilder.andWhere('personnel.orgCompany LIKE :orgCompany', { orgCompany: `%${query.orgCompany}%` });
+    if (query.orgRegion) queryBuilder.andWhere('personnel.orgRegion LIKE :orgRegion', { orgRegion: `%${query.orgRegion}%` });
     if (query.status) queryBuilder.andWhere('personnel.status = :status', { status: query.status });
 
     const [entities, total] = await queryBuilder

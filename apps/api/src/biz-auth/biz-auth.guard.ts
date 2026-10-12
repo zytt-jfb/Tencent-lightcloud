@@ -15,8 +15,10 @@ export class BizAuthGuard extends AuthGuard('biz-jwt') {
       const request = context.switchToHttp().getRequest();
       if (request.user) request.bizAuth = request.user;
       const path = String(request.originalUrl ?? request.url ?? '').split('?')[0];
-      const permission = path.startsWith('/api/biz/maintenance/')
-        ? 'portal.maintenance.enter'
+      const permission = /^\/api\/biz\/maintenance\/(personnel|vehicles|generators)\/[^/]+$/.test(path) && request.method === 'DELETE'
+        ? 'maintenance.data.delete'
+        : path.startsWith('/api/biz/maintenance/')
+          ? 'portal.maintenance.enter'
         : /^\/api\/biz\/(admin|settings)(\/|$)/.test(path) ? 'portal.system.enter'
         : /^\/api\/biz\/(contracts|fee-rates|orders|completions|offline-completions|costs|aggregates|analysis|snapshots)(\/|$)/.test(path)
           ? 'maintenance.operation.enter' : undefined;

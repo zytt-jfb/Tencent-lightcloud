@@ -27,6 +27,7 @@ export const BizPermissionCode = {
   MAINTENANCE_OPERATION_ENTER: 'maintenance.operation.enter',
   MAINTENANCE_ASSET_ENTER: 'maintenance.asset.enter',
   MAINTENANCE_PERSONNEL_ENTER: 'maintenance.personnel.enter',
+  MAINTENANCE_DATA_DELETE: 'maintenance.data.delete',
   // 经营管理 - 总览/分析
   OPERATION_HOME_READ: 'operation.home.read',
   OPERATION_ANALYSIS_READ: 'operation.analysis.read',

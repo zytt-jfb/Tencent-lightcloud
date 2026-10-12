@@ -1,5 +1,6 @@
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 export class CreatePersonnelDto {
+  @IsOptional() @IsArray() @IsString({ each: true }) documentFileIds?: string[];
   @IsString() @IsNotEmpty() @MaxLength(100) personnelCode!: string;
   @IsString() @IsNotEmpty() @MaxLength(100) name!: string;
   @IsString() @IsNotEmpty() @MaxLength(160) orgProvince!: string;

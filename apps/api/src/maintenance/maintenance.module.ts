@@ -9,10 +9,14 @@ import { MaintenanceVehicleService } from './vehicles/vehicle.service';
 import { MaintenanceGeneratorEntity } from './generators/generator.entity';
 import { MaintenanceGeneratorController } from './generators/generator.controller';
 import { MaintenanceGeneratorService } from './generators/generator.service';
+import { MaintenanceDocumentEntity } from './maintenance-document.entity';
+import { MaintenanceDocumentService } from './maintenance-document.service';
+import { FactSourceFileStorageService } from '../facts/fact-source-file-storage.service';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MaintenancePersonnelEntity, MaintenanceVehicleEntity, MaintenanceGeneratorEntity])],
+  imports: [ConfigModule, TypeOrmModule.forFeature([MaintenancePersonnelEntity, MaintenanceVehicleEntity, MaintenanceGeneratorEntity, MaintenanceDocumentEntity])],
   controllers: [MaintenancePersonnelController, MaintenanceVehicleController, MaintenanceGeneratorController],
-  providers: [MaintenancePersonnelService, MaintenanceVehicleService, MaintenanceGeneratorService],
+  providers: [MaintenancePersonnelService, MaintenanceVehicleService, MaintenanceGeneratorService, MaintenanceDocumentService, FactSourceFileStorageService],
 })
 export class MaintenanceModule {}

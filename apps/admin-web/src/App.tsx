@@ -29,7 +29,6 @@ const BizLogin = lazy(() => import('@/pages/biz/BizLogin'));
 const BizPortal = lazy(() => import('@/pages/biz/BizPortal'));
 const MaintenanceHome = lazy(() => import('@/pages/biz/maintenance/MaintenanceHome'));
 const MaintenanceOverview = lazy(() => import('@/pages/biz/maintenance/MaintenanceOverview'));
-const MaintenanceDocuments = lazy(() => import('@/pages/biz/maintenance/MaintenanceDocuments'));
 const BizPlaceholder = lazy(() => import('@/pages/biz/BizPlaceholder'));
 const BizAdmin = lazy(() => import('@/pages/biz/BizAdmin'));
 const BizAuditLogs = lazy(() => import('@/pages/biz/BizAuditLogs'));
@@ -143,7 +142,7 @@ export default function App() {
       <Route path="system" element={<Navigate to="/biz/settings" replace />} />
       <Route path="maintenance" element={<Navigate to="/biz/maintenance/overview" replace />} />
       <Route path="maintenance/overview" element={<Suspense fallback={<PageLoading />}><MaintenanceOverview /></Suspense>} />
-      <Route path="maintenance/documents" element={<Suspense fallback={<PageLoading />}><MaintenanceDocuments /></Suspense>} />
+      <Route path="maintenance/documents" element={<Navigate to="/biz/maintenance/personnel" replace />} />
       <Route path="maintenance/records" element={<Navigate to="/biz/maintenance/personnel" replace />} />
       <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="maintenance/vehicles" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
