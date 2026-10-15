@@ -10,6 +10,7 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
 import { message } from 'antd';
 import { getToken, clearToken } from './auth';
+import { clearBizToken, getBizToken } from './biz-auth';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
@@ -78,7 +79,8 @@ function redirectToPasswordSettings(): void {
 // ---- 请求拦截器 ----
 request.interceptors.request.use(
   (config) => {
-    const token = getToken();
+    const currentPath = window.location.hash.replace(/^#/, '').split('?')[0];
+    const token = currentPath === '/biz' || currentPath.startsWith('/biz/') ? getBizToken() : getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -100,13 +102,16 @@ request.interceptors.response.use(
       const serverMsg = error.response.data?.message;
 
       if (status === 401) {
-        clearToken();
         const currentRoute = window.location.hash.replace(/^#/, '') || '/';
+        const isBizRoute = currentRoute === '/biz' || currentRoute.startsWith('/biz/');
+        if (isBizRoute) clearBizToken();
+        else clearToken();
         const onLoginPage = isLoginRoute();
         if (!onLoginPage && !authRedirectStarted) {
           authRedirectStarted = true;
           message.destroy();
-          window.location.hash = '#/login?redirect=' + encodeURIComponent(currentRoute);
+          const loginPath = isBizRoute ? '/biz/login' : '/login';
+          window.location.hash = `#${loginPath}?redirect=` + encodeURIComponent(currentRoute);
           if (!suppressErrorToast) message.error({ key: AUTH_TOAST_KEY, content: '登录已过期，请重新登录' });
         }
       } else if (isTemporaryPasswordFailure(error)) {

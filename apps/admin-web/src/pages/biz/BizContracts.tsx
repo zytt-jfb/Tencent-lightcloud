@@ -4,7 +4,7 @@ import { useBizPermission } from '@/utils/biz-permission';
 import {
   Alert, Badge, Button, Card, Descriptions, Drawer, Form, Input, InputNumber, Modal, Progress, Select, Space, Table, Tabs, Tag, Typography, Upload, message,
 } from 'antd';
-import { DeleteOutlined, DownloadOutlined, EditOutlined, ExportOutlined, PlusOutlined, ReloadOutlined, UndoOutlined, UploadOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DownloadOutlined, EditOutlined, ExportOutlined, MinusCircleOutlined, PlusOutlined, ReloadOutlined, UndoOutlined, UploadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import * as XLSX from 'xlsx';
 import { exportPageRows } from '@/utils/page-export-core';
@@ -151,6 +151,7 @@ export default function BizContracts() {
         provinceId: String(values.provinceId),
         startDate: values.startDate ? dayjs(String(values.startDate)).format('YYYY-MM-DD') : null,
         endDate: values.endDate ? dayjs(String(values.endDate)).format('YYYY-MM-DD') : null,
+        allocations: Array.isArray(values.allocations) ? values.allocations.map((item: { cityId: string; quota: number }) => ({ cityId: String(item.cityId), quotaFen: Math.round(Number(item.quota || 0) * 100) })) : [],
       });
       message.success('合同草稿已创建');
       setCreateOpen(false);
@@ -634,13 +635,24 @@ export default function BizContracts() {
           <Form.Item name="contractName" label="合同名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="含税合同金额" required>
             <Space.Compact block>
-              <Form.Item name="taxInclusiveAmount" noStyle rules={[{ required: true, message: '请输入合同金额' }]}><InputNumber min={0} precision={2} style={{ width: '72%' }} /></Form.Item>
+              <Form.Item name="taxInclusiveAmount" noStyle rules={[{ required: true, message: '请输入合同金额' }]}><InputNumber min={0} precision={6} style={{ width: '72%' }} /></Form.Item>
               <Form.Item name="taxInclusiveAmountUnit" noStyle initialValue="yuan"><Select style={{ width: '28%' }} options={[{ value: 'yuan', label: '元' }, { value: 'wan', label: '万元' }]} /></Form.Item>
             </Space.Compact>
           </Form.Item>
           <Form.Item name="provinceId" label="所属省份" rules={[{ required: true }]}>
-            <Select options={provinces.map((p) => ({ value: p.id, label: p.name }))} />
+            <Select options={provinces.map((p) => ({ value: p.id, label: p.name }))} onChange={() => createForm.setFieldsValue({ allocations: [] })} />
           </Form.Item>
+          <Form.List name="allocations">
+            {(fields, { add, remove }) => <>
+              <Typography.Text strong>地市分配（费率后续单独维护）</Typography.Text>
+              {fields.map((field) => <Space key={field.key} align="baseline" style={{ display: 'flex', marginTop: 8 }}>
+                <Form.Item {...field} name={[field.name, 'cityId']} rules={[{ required: true, message: '请选择地市' }]}><Select placeholder="选择地市" style={{ width: 170 }} options={cities.filter((c) => !createForm.getFieldValue(['allocations'])?.some((x: { cityId?: string }) => x?.cityId === c.id)).map((c) => ({ value: c.id, label: c.name }))} /></Form.Item>
+                <Form.Item {...field} name={[field.name, 'quota']} rules={[{ required: true, message: '请输入额度' }]}><InputNumber min={0} precision={2} placeholder="额度（元）" /></Form.Item>
+                <MinusCircleOutlined onClick={() => remove(field.name)} />
+              </Space>)}
+              <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>添加地市分配</Button>
+            </>}
+          </Form.List>
           <Form.Item name="startDate" label="开始日期"><Input type="date" /></Form.Item>
           <Form.Item name="endDate" label="结束日期"><Input type="date" /></Form.Item>
           <Button type="primary" htmlType="submit" block>保存草稿</Button>

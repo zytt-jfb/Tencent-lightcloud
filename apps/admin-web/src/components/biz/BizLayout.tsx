@@ -98,7 +98,18 @@ export default function BizLayout() {
   }, []);
 
   useEffect(() => {
-    bizMe().then(setMe).catch(() => { clearBizToken(); clearBizPermissionCache(); navigate('/biz/login'); });
+    let active = true;
+    bizMe().then((user) => { if (active) setMe(user); }).catch((error: unknown) => {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      if (status === 401) {
+        clearBizToken();
+        clearBizPermissionCache();
+        navigate('/biz/login', { replace: true });
+      } else if (active) {
+        message.error(status === 403 ? '当前账号未配置业务角色或权限，请联系管理员' : '读取账号信息失败，请稍后重试');
+      }
+    });
+    return () => { active = false; };
   }, [navigate]);
 
   useEffect(() => {
@@ -173,7 +184,7 @@ export default function BizLayout() {
     ...messageItems,
     ...businessItems,
   ];
-  const isMaintenanceModule = location.pathname.startsWith('/biz/maintenance');
+  const isMaintenanceModule = location.pathname.startsWith('/biz/maintenance') || location.pathname.startsWith('/biz/performance');
   const isSystemModule = ['/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const moduleName = isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
   const standaloneMaintenanceItems: MenuProps['items'] = [
@@ -182,6 +193,11 @@ export default function BizLayout() {
     { key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: [
       { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined /> },
       { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined /> },
+    ] },
+    { key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: [
+      { key: '/biz/performance/monthly-score', label: '月度分数' },
+      { key: '/biz/performance/overview', label: '绩效总览' },
+      { key: '/biz/performance/upload', label: '绩效上传' },
     ] },
   ];
   // 移动端与桌面端保持同一层级，避免两种导航结构产生不同入口。
@@ -196,7 +212,7 @@ export default function BizLayout() {
     '/biz/analysis/overruns', '/biz/analysis/cities', '/biz/analysis/trend', '/biz/analysis',
     '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
     '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
-    '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators',
+    '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
   ];
   const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const activeGroupKey = location.pathname.startsWith('/biz/analysis')
@@ -208,6 +224,8 @@ export default function BizLayout() {
       ? 'biz-cost'
       : location.pathname.startsWith('/biz/orders') || location.pathname.startsWith('/biz/offline-completions')
         ? 'biz-completion'
+        : location.pathname.startsWith('/biz/performance')
+          ? 'performance'
         : location.pathname.startsWith('/biz/maintenance')
           ? 'maintenance-assets'
         : undefined;

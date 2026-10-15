@@ -29,6 +29,9 @@ const BizLogin = lazy(() => import('@/pages/biz/BizLogin'));
 const BizPortal = lazy(() => import('@/pages/biz/BizPortal'));
 const MaintenanceHome = lazy(() => import('@/pages/biz/maintenance/MaintenanceHome'));
 const MaintenanceOverview = lazy(() => import('@/pages/biz/maintenance/MaintenanceOverview'));
+const PerformanceMonthlyScore = lazy(() => import('@/pages/biz/performance/MonthlyScore'));
+const PerformanceOverview = lazy(() => import('@/pages/biz/performance/Overview'));
+const PerformanceUpload = lazy(() => import('@/pages/biz/performance/Upload'));
 const BizPlaceholder = lazy(() => import('@/pages/biz/BizPlaceholder'));
 const BizAdmin = lazy(() => import('@/pages/biz/BizAdmin'));
 const BizAuditLogs = lazy(() => import('@/pages/biz/BizAuditLogs'));
@@ -109,7 +112,7 @@ function ProtectedRoutes() {
     return () => { active = false; };
   }, []);
   if (currentUser === undefined) return <PageLoading />;
-  if (currentUser === null) return <Navigate to={`/login?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
+  if (currentUser === null) return <Navigate to={`${location.pathname.startsWith('/biz/') ? '/biz/login' : '/login'}?redirect=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (!isSupportedRole(currentUser.role)) return <UnsupportedRole />;
   const settingsPath = isCityRole(currentUser.role) ? '/city/settings' : '/admin/settings';
   if (currentUser.mustChangePassword) {
@@ -147,6 +150,9 @@ export default function App() {
       <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="maintenance/vehicles" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="maintenance/generators" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
+      <Route path="performance/monthly-score" element={<Suspense fallback={<PageLoading />}><PerformanceMonthlyScore /></Suspense>} />
+      <Route path="performance/overview" element={<Suspense fallback={<PageLoading />}><PerformanceOverview /></Suspense>} />
+      <Route path="performance/upload" element={<Suspense fallback={<PageLoading />}><PerformanceUpload /></Suspense>} />
       <Route path="placeholder/:code" element={<Suspense fallback={<PageLoading />}><BizPlaceholder /></Suspense>} />
       <Route path="operation" element={<Suspense fallback={<PageLoading />}><BizContracts /></Suspense>} />
       <Route path="contract-overview" element={<Suspense fallback={<PageLoading />}><BizContractOverview /></Suspense>} />

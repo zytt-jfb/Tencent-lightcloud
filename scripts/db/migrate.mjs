@@ -48,7 +48,7 @@ async function precheck() {
     } else if (row?.status === 'failed') {
       blockers += 1;
       console.error(`BLOCK previous_failure version=${migration.version} error=${clean(row.error_message)}`);
-    } else if (!row && state === 'partial') {
+    } else if (!row && state === 'partial' && !(migration.version === '034_maintenance_detail_fields' && await canRepairMaintenanceDetailFields())) {
       blockers += 1;
       console.error(`BLOCK partial_state version=${migration.version}`);
     } else {
@@ -85,6 +85,19 @@ async function migrateUp() {
       await recordApplied(migration, 'adopted_existing', Date.now() - started);
       console.log(`ADOPT version=${migration.version}`);
       continue;
+    }
+    if (state === 'partial' && migration.version === '034_maintenance_detail_fields' && await canRepairMaintenanceDetailFields()) {
+      await recordStarting(migration);
+      try {
+        await applyMaintenanceDetailFields();
+        if (await inspectState(migration.version) !== 'satisfied') fail('POSTCHECK_FAILED');
+        await recordApplied(migration, 'repaired_additive', Date.now() - started);
+        console.log(`REPAIR version=${migration.version} ms=${Date.now() - started}`);
+        continue;
+      } catch (error) {
+        await recordFailed(migration, error);
+        fail(`MIGRATION_REPAIR_FAILED version=${migration.version} error=${clean(error instanceof Error ? error.message : error)}`);
+      }
     }
     if (state !== 'empty') fail(`PARTIAL_STATE version=${migration.version}`);
     await recordStarting(migration);
@@ -124,6 +137,10 @@ async function applyMigration(migration) {
     if (!await adapter.columnExists('cities', 'is_deleted')) await adapter.exec('ALTER TABLE cities ADD COLUMN is_deleted TINYINT NOT NULL DEFAULT 0');
     if (!await adapter.columnExists('cities', 'deleted_at')) await adapter.exec('ALTER TABLE cities ADD COLUMN deleted_at DATETIME NULL');
     if (!await adapter.indexExists('cities', 'idx_cities_deleted_sort')) await adapter.exec('CREATE INDEX idx_cities_deleted_sort ON cities (is_deleted, sort_order, id)');
+    return;
+  }
+  if (migration.version === '034_maintenance_detail_fields') {
+    await applyMaintenanceDetailFields();
     return;
   }
   if (migration.version === '006_fact_source_file_lineage') {
@@ -737,6 +754,10 @@ async function inspectState(version) {
       adapter.columnExists('maintenance_generators', 'org_city'),
     ]);
   }
+  if (version === '036_maintenance_data_delete_permission') {
+    if (!await adapter.tableExists('biz_permissions')) return 'empty';
+    return adapter.scalar("SELECT COUNT(*) FROM biz_permissions WHERE code = 'maintenance.data.delete'").then((count) => count >= 1 ? 'satisfied' : 'empty');
+  }
   if (version === '037_maintenance_document_files') {
     return allOrNothing([
       adapter.tableExists('maintenance_document_files'),
@@ -744,7 +765,61 @@ async function inspectState(version) {
       adapter.indexExists('maintenance_document_files', 'idx_maintenance_document_uploader'),
     ]);
   }
+  if (version === '038_performance') {
+    return allOrNothing([adapter.tableExists('biz_performance_batch'), adapter.tableExists('biz_performance_record'), adapter.indexExists('biz_performance_record', 'uk_perf_batch_supplier_org')]);
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
+}
+
+async function canRepairMaintenanceDetailFields() {
+  return (await Promise.all([
+    adapter.tableExists('maintenance_personnel'),
+    adapter.tableExists('maintenance_vehicles'),
+    adapter.tableExists('maintenance_generators'),
+  ])).every(Boolean);
+}
+
+async function applyMaintenanceDetailFields() {
+  const columns = [
+    ['maintenance_personnel', 'id_card', 'VARCHAR(32) NULL'],
+    ['maintenance_personnel', 'low_voltage_cert', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'low_voltage_cert_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'high_voltage_cert', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'high_voltage_cert_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'work_at_height_cert', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'work_at_height_cert_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'employer_liability_amount', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'employer_liability_policy_no', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'employer_liability_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_amount', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_policy_no', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'team_accident_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_amount2', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_policy_no2', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'team_accident_expiry2', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_amount3', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'team_accident_policy_no3', 'VARCHAR(160) NULL'],
+    ['maintenance_personnel', 'team_accident_expiry3', 'VARCHAR(64) NULL'],
+    ['maintenance_personnel', 'personnel_condition', 'VARCHAR(255) NULL'],
+    ['maintenance_vehicles', 'owner_name', 'VARCHAR(100) NULL'],
+    ['maintenance_vehicles', 'driving_license', 'VARCHAR(160) NULL'],
+    ['maintenance_vehicles', 'vehicle_years', 'VARCHAR(64) NULL'],
+    ['maintenance_vehicles', 'mileage', 'VARCHAR(64) NULL'],
+    ['maintenance_vehicles', 'vehicle_status', 'VARCHAR(64) NULL'],
+    ['maintenance_vehicles', 'compulsory_insurance_policy_no', 'VARCHAR(160) NULL'],
+    ['maintenance_vehicles', 'compulsory_insurance_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_vehicles', 'commercial_insurance_policy_no', 'VARCHAR(160) NULL'],
+    ['maintenance_vehicles', 'commercial_insurance_expiry', 'VARCHAR(64) NULL'],
+    ['maintenance_vehicles', 'maintenance_time', 'VARCHAR(64) NULL'],
+    ['maintenance_generators', 'manufacturer', 'VARCHAR(255) NULL'],
+    ['maintenance_generators', 'production_date', 'VARCHAR(64) NULL'],
+    ['maintenance_generators', 'last_maintenance_upload_at', 'VARCHAR(64) NULL'],
+  ];
+  for (const [table, column, definition] of columns) {
+    if (!await adapter.columnExists(table, column)) {
+      await adapter.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+  }
 }
 
 function validateConfiguration(checkRuntime = true) {

@@ -159,7 +159,17 @@ export class BizSnapshotService implements OnModuleInit {
     if (inflight) return { runId: inflight.runId, status: 'building' };
 
     const existingBuilding = await this.runRepo.findOne({ where: { status: 'building' }, order: { startedAt: 'DESC' } });
-    if (existingBuilding) return { runId: existingBuilding.id, status: 'building' };
+    if (existingBuilding) {
+      // 容器重启或发布中断可能留下 building 任务；不能让它永久阻塞手动更新。
+      const startedAt = new Date(existingBuilding.startedAt).getTime();
+      const stale = !Number.isFinite(startedAt) || Date.now() - startedAt > 30 * 60 * 1000;
+      if (!stale) return { runId: existingBuilding.id, status: 'building' };
+      await this.runRepo.update(existingBuilding.id, {
+        status: 'failed',
+        errorMessage: '快照任务超过 30 分钟未完成，已自动释放更新锁',
+        finishedAt: new Date(),
+      });
+    }
 
     // as_of 唯一约束要求同一业务日复用既有记录。手动点击代表明确要求刷新，
     // 而定时任务仍对 ready 快照幂等跳过，避免每天重复全量计算。
@@ -247,10 +257,23 @@ export class BizSnapshotService implements OnModuleInit {
     lastRun: { runId: string; status: SnapshotStatus; asOf: string; finishedAt: Date | string | null; errorMessage: string | null; source: string | null } | null;
   }> {
     const registry = await this.getEffectiveRegistry();
-    const [lastRun, latestReadyRun] = await Promise.all([
+    let [lastRun, latestReadyRun] = await Promise.all([
       this.runRepo.createQueryBuilder('run').orderBy('run.startedAt', 'DESC').limit(1).getOne(),
       this.runRepo.findOne({ where: { status: 'ready' }, order: { finishedAt: 'DESC' } }),
     ]);
+    // A killed container can leave a run in `building` forever. Treat it as
+    // failed while reading metadata so every page can recover without a new click.
+    if (lastRun?.status === 'building') {
+      const startedAt = new Date(lastRun.startedAt).getTime();
+      if (!Number.isFinite(startedAt) || Date.now() - startedAt > 30 * 60 * 1000) {
+        await this.runRepo.update(lastRun.id, {
+          status: 'failed',
+          errorMessage: '快照任务超过 30 分钟未完成，已自动释放更新锁',
+          finishedAt: new Date(),
+        });
+        lastRun = await this.runRepo.findOneBy({ id: lastRun.id });
+      }
+    }
     // 修复/兼容历史 registry 指针丢失或多行不一致：ready run 可由原子构建事务证实，补回当前指针。
     let effectiveRegistry = registry;
     if ((!effectiveRegistry?.currentSnapshotId || effectiveRegistry.status !== 'ready') && latestReadyRun) {

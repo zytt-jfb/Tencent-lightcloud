@@ -36,5 +36,6 @@
   "034_maintenance_detail_fields": "218b6a6557e2a60a4bc5dfe543e54c5f47e4163fda1ff3c8f3dab2b63a70cf8d",
   "035_maintenance_org_city": "0de18608a7cc47eebd847ec68eae119e51015c10bf652991558e75fbaf0d2363",
   "036_maintenance_data_delete_permission": "270692d5df7a942bbb603b4363220323eaeed276151192521f87296b0507d955",
-  "037_maintenance_document_files": "a40f05aebaf11305c45c1e77cbb631dded925553d944716b685e62efe64c1bc3"
+  "037_maintenance_document_files": "a40f05aebaf11305c45c1e77cbb631dded925553d944716b685e62efe64c1bc3",
+  "038_performance": "16a2fdacc03b32e742342d005a4c882b2e1162043ff6ed845648a99ce0ccd64a"
 }

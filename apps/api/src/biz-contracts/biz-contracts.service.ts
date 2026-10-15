@@ -51,6 +51,7 @@ export interface CreateContractDto {
   startDate?: string | null;
   endDate?: string | null;
   parentContractId?: string | null;
+  allocations?: Array<{ cityId: string; quotaFen: number }>;
 }
 
 export interface UpdateContractDto {
@@ -523,6 +524,15 @@ export class BizContractsService {
       createdBy: auth.userId,
       updatedBy: auth.userId,
     });
+    const allocations = dto.allocations ?? [];
+    const cityIds = [...new Set(allocations.map((item) => String(item.cityId).trim()).filter(Boolean))];
+    if (cityIds.length) {
+      const cities = await this.cityRepo.findBy({ id: In(cityIds), provinceId: dto.provinceId });
+      if (cities.length !== cityIds.length) throw new BadRequestException('地市必须属于所选省份');
+      const totalQuota = allocations.reduce((sum, item) => sum + Math.round(Number(item.quotaFen) || 0), 0);
+      if (totalQuota > Number(contract.taxInclusiveAmountFen)) throw new BadRequestException('地市分配额度不能超过合同金额');
+      await this.allocationRepo.insert(allocations.map((item) => ({ id: randomUUID(), contractId: contract.id, cityId: item.cityId, quotaFen: Math.round(Number(item.quotaFen) || 0), status: 'active', versionNo: 1 })));
+    }
     await this.recordOp(auth.userId, 'contract.create', contract.id);
     return contract;
   }
@@ -1282,23 +1292,24 @@ export class BizContractsService {
 
   // ================= 真正删除（软删除，保留记录与恢复入口） =================
 
-  /** 单条删除（软删除）：标记 deletedAt/deletedBy，保留删除记录；与作废(void)解耦，不再受合同状态限制。 */
+  /** 单条删除：物理删除合同及合同附属记录，操作日志保留。 */
   async remove(auth: BizAuthContext, id: string): Promise<BizContractEntity> {
     if (!auth.isSuperAdmin && !auth.permissionCodes.has('operation.contract.delete')) {
       throw new ForbiddenException('当前账号无删除合同权限');
     }
     const contract = await this.getContractOrFail(id);
     await this.assertContractVisible(auth, contract);
-    if (contract.deletedAt) throw new BadRequestException('合同已处于删除状态');
     const before = `contractNo=${contract.contractNo};status=${contract.status}`;
-    contract.deletedAt = new Date();
-    contract.deletedBy = auth.userId;
-    contract.deletedBatchId = null;
-    contract.versionNo += 1;
-    contract.updatedBy = auth.userId;
-    await this.contractRepo.save(contract);
-    await this.recordOp(auth.userId, 'contract.delete', id, 'success', { summaryBefore: before, summaryAfter: `deletedAt=${contract.deletedAt.toISOString()}` });
-    return contract;
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(BizContractFeeRateEntity, { contractId: id });
+      await manager.delete(BizContractCityAllocationEntity, { contractId: id });
+      await manager.delete(BizContractAlertEntity, { contractId: id });
+      await manager.delete(BizOrderRowEntity, { contractId: id });
+      await manager.delete(BizOfflineCompletionEntity, { contractId: id });
+      await manager.delete(BizContractEntity, { id });
+    });
+    await this.recordOp(auth.userId, 'contract.delete', id, 'success', { summaryBefore: before, summaryAfter: 'physically_deleted=true' });
+    return { ...contract, deletedAt: new Date() };
   }
 
   /** 批量删除（软删除）：逐条校验并标记；返回成功/跳过明细，整批写入同一 batchId 便于审计。 */

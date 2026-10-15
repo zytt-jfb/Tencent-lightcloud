@@ -239,6 +239,7 @@ export function bizMaintainPendingContractRow(sourceRowId: string, dto: { contra
 export function bizContractCreate(dto: {
   contractNo: string; contractName: string; taxInclusiveAmountFen: number;
   provinceId: string; startDate?: string | null; endDate?: string | null; parentContractId?: string | null;
+  allocations?: Array<{ cityId: string; quotaFen: number }>;
 }): Promise<BizContractItem> {
   return request.post('/biz/contracts', dto).then((r) => r.data);
 }

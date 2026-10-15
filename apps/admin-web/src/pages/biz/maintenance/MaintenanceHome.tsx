@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { AutoComplete, Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Upload, message, type TableColumnsType } from 'antd';
+import { Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Upload, message, type TableColumnsType } from 'antd';
 import { maintenanceCreate, maintenanceDownloadDocument, maintenanceList, maintenanceListDocuments, maintenanceRemove, maintenanceUpdate, maintenanceUploadDocument, type MaintenanceDocument, type MaintenanceItem } from '@/api/maintenance.api';
+import { bizCities, bizProvinces } from '@/api/biz.api';
 import { useLocation } from 'react-router-dom';
 import { useBizPermission } from '@/utils/biz-permission';
 
@@ -140,7 +141,8 @@ function DetailCard({ kind, row }: { kind: Kind; row: MaintenanceItem }) {
   );
 }
 
-export default function MaintenanceHome() { const location=useLocation(); const routeKind=location.pathname.split('/').pop() ?? ''; const kind:Kind=routeKind in configs ? routeKind as Kind : 'personnel'; const [items,setItems]=useState<MaintenanceItem[]>([]); const [total,setTotal]=useState(0); const [page,setPage]=useState(1); const [loading,setLoading]=useState(false); const [filters,setFilters]=useState({ keyword:'', orgProvince:'', orgCity:'', orgRegion:'' }); const [editing,setEditing]=useState<MaintenanceItem|null>(null); const [open,setOpen]=useState(false); const [documentIds,setDocumentIds]=useState<string[]>([]); const [documents,setDocuments]=useState<MaintenanceDocument[]>([]); const [form]=Form.useForm<any>();
+export default function MaintenanceHome() { const location=useLocation(); const routeKind=location.pathname.split('/').pop() ?? ''; const kind:Kind=routeKind in configs ? routeKind as Kind : 'personnel'; const [items,setItems]=useState<MaintenanceItem[]>([]); const [total,setTotal]=useState(0); const [page,setPage]=useState(1); const [loading,setLoading]=useState(false); const [filters,setFilters]=useState({ keyword:'', orgProvince:'', orgCity:'', orgRegion:'' }); const [editing,setEditing]=useState<MaintenanceItem|null>(null); const [open,setOpen]=useState(false); const [documentIds,setDocumentIds]=useState<string[]>([]); const [documents,setDocuments]=useState<MaintenanceDocument[]>([]); const [form]=Form.useForm<any>(); const [cityOptions,setCityOptions]=useState<Array<{value:string;label:string}>>([]); const [provinceOptions,setProvinceOptions]=useState<Array<{value:string;label:string}>>([]);
+  useEffect(()=>{void Promise.all([bizCities(),bizProvinces()]).then(([cityResult,provinceResult])=>{setCityOptions(cityResult.items.map(city=>({value:city.name,label:city.name})));setProvinceOptions(provinceResult.items.map(province=>({value:province.name,label:province.name})));}).catch(()=>message.error('地市字典加载失败'));},[]);
   const canDelete = useBizPermission('maintenance.data.delete');
   const load=async(nextPage=1,nextFilters=filters)=>{setLoading(true);try{const r=await maintenanceList(kind,{...nextFilters,page:nextPage,pageSize:50});setItems(r.items);setTotal(r.total);setPage(nextPage);}catch(e){message.error('维护数据加载失败');}finally{setLoading(false);}}; useEffect(()=>{void load(1);},[kind]);
   const sections=formSections(kind); const submit=async()=>{try{const v=await form.validateFields(); const payload={...v,documentFileIds:documentIds}; if(editing) await maintenanceUpdate(kind,editing.id,payload); else await maintenanceCreate(kind,payload); message.success('保存成功，资料已关联');setOpen(false);form.resetFields();setDocumentIds([]);setEditing(null);void load();}catch(e){message.error('保存失败，请检查字段');}};
@@ -168,10 +170,10 @@ export default function MaintenanceHome() { const location=useLocation(); const 
       <Input placeholder="关键词" value={filters.keyword} onChange={e=>setFilters(f=>({...f,keyword:e.target.value}))} onPressEnter={()=>void load(1)} style={{ width: 170 }} />
       {(['orgProvince','orgCity','orgRegion'] as const).map((field)=>{
         const label={orgProvince:'省份',orgCity:'地市',orgRegion:'区县'}[field];
-        const options=Array.from(new Set(items.map(row=>String(row[field]??'').trim()).filter(Boolean))).map(value=>({value}));
-        return <AutoComplete key={field} allowClear options={options} value={filters[field]} onChange={value=>setFilters(f=>({...f,[field]:value}))} onSelect={value=>setFilters(f=>({...f,[field]:value}))} onKeyDown={event=>{if(event.key==='Enter')void load(1);}} filterOption={(input,option)=>(option?.value??'').toLowerCase().includes(input.toLowerCase())} style={{width:140}}>
-          <Input placeholder={label} />
-        </AutoComplete>;
+        if(field==='orgProvince') return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={provinceOptions} onChange={value=>setFilters(f=>({...f,orgProvince:value??'',orgCity:''}))} style={{width:140}} />;
+        if(field==='orgCity') return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={cityOptions} onChange={value=>setFilters(f=>({...f,orgCity:value??''}))} style={{width:140}} />;
+        const options=Array.from(new Set(items.map(row=>String(row.orgRegion??'').trim()).filter(Boolean))).map(value=>({value,label:value}));
+        return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={options} onChange={value=>setFilters(f=>({...f,orgRegion:value??''}))} style={{width:140}} />;
       })}
       <Button type="primary" onClick={()=>void load(1)}>筛选</Button><Button onClick={()=>{const next={keyword:'',orgProvince:'',orgCity:'',orgRegion:''};setFilters(next);void load(1,next);}}>重置</Button>
     </Space>
@@ -182,7 +184,7 @@ export default function MaintenanceHome() { const location=useLocation(); const 
     <Drawer title={`${editing?'编辑':'新增'}${configs[kind].label}`} placement="right" width="50vw" open={open} onClose={()=>setOpen(false)} mask={false} destroyOnClose styles={{wrapper:{maxWidth:'100vw'}}} extra={<Space><Button onClick={()=>setOpen(false)}>取消</Button><Button type="primary" onClick={()=>void submit()}>保存</Button></Space>}>
       <Form form={form} layout="vertical">
         {documents.length>0&&<Card size="small" title="已上传资料" style={{marginBottom:16}}>{documents.map(document=><div key={document.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span>{document.fileName}</span><Button type="link" onClick={()=>void downloadDocument(document)}>下载</Button></div>)}</Card>}
-        <Tabs items={sections.map((section)=>({key:section.key,label:section.label,children:<div style={{padding: '12px 8px'}}>{section.fields.map(([name,label])=><Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key,name)&&<Upload showUploadList={false} beforeUpload={file=>{void handleUpload(name,file);return false;}} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode','name','plateNumber','generatorCode','orgProvince','orgCity','orgCompany','orgRegion'].includes(name)?[{required:true,message:`请输入${label}`}]:undefined}><Input /></Form.Item>)}</div>}))} />
+        <Tabs items={sections.map((section)=>({key:section.key,label:section.label,children:<div style={{padding: '12px 8px'}}>{section.fields.map(([name,label])=><Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key,name)&&<Upload showUploadList={false} beforeUpload={file=>{void handleUpload(name,file);return false;}} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode','name','plateNumber','generatorCode','orgProvince','orgCity','orgCompany','orgRegion'].includes(name)?[{required:true,message:`请选择或输入${label}`}]:undefined}>{name==='orgProvince'?<Select showSearch optionFilterProp="label" options={provinceOptions} placeholder="请选择省份" />:name==='orgCity'?<Select showSearch optionFilterProp="label" options={cityOptions} placeholder="请选择地市" />:<Input />}</Form.Item>)}</div>}))} />
       </Form>
     </Drawer>
   </Card>;

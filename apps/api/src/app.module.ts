@@ -36,6 +36,7 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { RequestIdMiddleware } from './common/http/request-id.middleware';
 import { HttpLoggingInterceptor } from './common/http/http-logging.interceptor';
 import { MaintenanceModule } from './maintenance/maintenance.module';
+import { PerformanceModule } from './performance/performance.module';
 
 @Module({
   imports: [
@@ -135,6 +136,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
     BizCommunicationsModule,
     BizDataDeletionModule,
     MaintenanceModule,
+    PerformanceModule,
     BizCommunicationsModule,
     BizDataDeletionModule,
     MaintenanceModule,

@@ -1,0 +1,7 @@
+import request from '@/utils/request';
+import { getBizToken } from '@/utils/biz-auth';
+request.interceptors.request.use((config) => { const token = getBizToken(); if (token) config.headers.Authorization = `Bearer ${token}`; return config; });
+export type PerformanceResult = { year: number; month: number; companyScore: number; items: Array<{ supplier: string; score: number; rank: number }>; citySupplierItems: Array<{ city: string; supplier: string; score: number; rank: number }>; organizations: Array<{ city: string; supplier: string; score: number; rank: number }>; organizationCount: number; suppliers?: string[]; cities?: string[]; years?: number[] };
+export const performanceMonthly = (params: { year?: number; month?: number; supplier?: string; city?: string }) => request.get('/biz/performance/monthly-score', { params }) as Promise<PerformanceResult>;
+export const performanceOverview = (params: { month?: number }) => request.get('/biz/performance/overview', { params }) as Promise<PerformanceResult>;
+export const performanceUpload = (file: File, assessmentYear: number) => { const f = new FormData(); f.append('file', file); f.append('assessmentYear', String(assessmentYear)); return request.post('/biz/performance/upload', f, { headers: { 'Content-Type': 'multipart/form-data' } }) as unknown as Promise<{ batchId: string; totalRows: number }>; };
