@@ -24,6 +24,9 @@ import { BizSnapshotOverrunPeriodEntity } from '../biz-snapshots/biz-snapshot-ov
 import { BizSnapshotContractLedgerEntity } from '../biz-snapshots/biz-snapshot-contract-ledger.entity';
 import { BizSnapshotService } from '../biz-snapshots/biz-snapshot.service';
 import { BizSnapshotScheduler } from '../biz-snapshots/biz-snapshot.scheduler';
+import { BizModuleSnapshotEntity } from '../biz-snapshots/biz-module-snapshot.entity';
+import { ModuleSnapshotService } from '../biz-snapshots/module-snapshot.service';
+import { ModuleSnapshotController } from '../biz-snapshots/module-snapshot.controller';
 
 @Module({
   imports: [
@@ -47,11 +50,12 @@ import { BizSnapshotScheduler } from '../biz-snapshots/biz-snapshot.scheduler';
       BizSnapshotOverrunEntity,
       BizSnapshotOverrunPeriodEntity,
       BizSnapshotContractLedgerEntity,
+      BizModuleSnapshotEntity,
     ]),
     RbacModule,
   ],
-  controllers: [BizAggregateController],
-  providers: [BizAggregateService, BizSnapshotService, BizSnapshotScheduler],
-  exports: [BizAggregateService, BizSnapshotService],
+  controllers: [BizAggregateController, ModuleSnapshotController],
+  providers: [BizAggregateService, BizSnapshotService, BizSnapshotScheduler, ModuleSnapshotService],
+  exports: [BizAggregateService, BizSnapshotService, ModuleSnapshotService],
 })
 export class BizAggregatesModule {}

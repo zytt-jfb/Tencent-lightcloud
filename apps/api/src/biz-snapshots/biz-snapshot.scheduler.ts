@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { BizSnapshotService } from './biz-snapshot.service';
+import { ModuleSnapshotService } from './module-snapshot.service';
 
 /**
  * 快照定时生成任务（系统上下文，无 HTTP 用户）。
@@ -19,7 +20,10 @@ export class BizSnapshotScheduler implements OnModuleInit {
   private readonly logger = new Logger(BizSnapshotScheduler.name);
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(private readonly snapshots: BizSnapshotService) {}
+  constructor(
+    private readonly snapshots: BizSnapshotService,
+    private readonly moduleSnapshots: ModuleSnapshotService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     // 容器重启/发布中断会把正在构建的任务留在 building 状态，先释放再注册，避免阻塞当天定时构建
@@ -60,12 +64,22 @@ export class BizSnapshotScheduler implements OnModuleInit {
   }
 
   private async runScheduledBuild(): Promise<void> {
+    const asOf = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     try {
-      const asOf = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-      const result = await this.snapshots.requestBuild(asOf, 'auto');
-      this.logger.log(`[BizSnapshot] 定时触发 run=${result.runId} status=${result.status} asOf=${asOf}`);
-    } catch (err) {
-      this.logger.error(`[BizSnapshot] 定时任务异常: ${err instanceof Error ? err.message : String(err)}`);
+      // 经营分析与模块快照相互独立：任一失败都不能阻止另一批构建
+      try {
+        const result = await this.snapshots.requestBuild(asOf, 'auto');
+        this.logger.log(`[BizSnapshot] 定时触发 run=${result.runId} status=${result.status} asOf=${asOf}`);
+      } catch (err) {
+        this.logger.error(`[BizSnapshot] 定时任务异常: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      try {
+        const statuses = await this.moduleSnapshots.buildAll(asOf);
+        const ok = statuses.filter((s) => s.status === 'ready').length;
+        this.logger.log(`[ModuleSnapshot] 定时构建完成 ${ok}/${statuses.length} asOf=${asOf}`);
+      } catch (err) {
+        this.logger.error(`[ModuleSnapshot] 定时构建异常: ${err instanceof Error ? err.message : String(err)}`);
+      }
     } finally {
       await this.reschedule();
     }

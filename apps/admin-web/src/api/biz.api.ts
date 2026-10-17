@@ -1016,3 +1016,45 @@ export function bizFeeRateCopy(dto: { sourceMonth: string; targetMonth: string; 
 export function bizFeeRateBulkApply(dto: { contractIds: string[]; cityIds: string[]; effectiveMonth: string; rateBp: number; changeReason?: string; overwrite?: boolean }): Promise<BizFeeRateBatchResult> {
   return request.post('/biz/fee-rates/bulk-apply', dto).then((r) => r.data);
 }
+
+// ================= 通用模块快照（各业务模块首屏缓存） =================
+
+export interface BizModuleSnapshotStatus {
+  code: string;
+  label: string;
+  asOf: string | null;
+  builtAt: string | null;
+  status: 'ready' | 'stale' | 'missing' | 'failed';
+  /** 超过 24 小时即过期，页面应回落实时查询 */
+  stale: boolean;
+  buildMs: number | null;
+  rowCount: number;
+  sizeBytes: number;
+  error: string | null;
+}
+
+export interface BizModuleSnapshotPayload {
+  summary: Record<string, unknown>;
+  list?: { items: Array<Record<string, unknown>>; total: number };
+  charts?: Record<string, unknown>;
+  note?: string;
+}
+
+export interface BizModuleSnapshotView extends BizModuleSnapshotStatus {
+  payload: BizModuleSnapshotPayload | null;
+}
+
+/** 各模块快照状态（系统设置页展示） */
+export function bizModuleSnapshots(): Promise<{ items: BizModuleSnapshotStatus[] }> {
+  return request.get('/biz/module-snapshots').then((r) => r.data);
+}
+
+/** 读取单个模块快照（页面首屏） */
+export function bizModuleSnapshot(code: string): Promise<BizModuleSnapshotView> {
+  return request.get(`/biz/module-snapshots/${encodeURIComponent(code)}`).then((r) => r.data);
+}
+
+/** 立即重建模块快照（不传 codes 表示全部） */
+export function bizModuleSnapshotRebuild(params?: { codes?: string[]; asOf?: string }): Promise<{ ok: boolean; asOf: string; items: BizModuleSnapshotStatus[] }> {
+  return request.post('/biz/module-snapshots/rebuild', params ?? {}).then((r) => r.data);
+}

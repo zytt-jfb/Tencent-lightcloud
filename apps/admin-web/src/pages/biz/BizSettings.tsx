@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Form, Input, Select, Space, Switch, Table, TimePicker, Typography, message } from 'antd';
+import { Button, Card, Form, Input, Select, Space, Switch, Table, Tag, TimePicker, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { DownloadOutlined } from '@ant-design/icons';
 import { exportPageRows } from '@/utils/page-export-core';
 import dayjs from 'dayjs';
-import { bizSettingsList, bizSettingUpdate, type BizSnapshotMetadata } from '@/api/biz.api';
+import { bizModuleSnapshotRebuild, bizModuleSnapshots, bizSettingsList, bizSettingUpdate, type BizModuleSnapshotStatus, type BizSnapshotMetadata } from '@/api/biz.api';
 import { useBizSnapshot } from '@/components/biz/BizSnapshotContext';
 
 const { Title } = Typography;
@@ -54,6 +54,10 @@ export default function BizSettings() {
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoTime, setAutoTime] = useState('03:00');
   const [autoSaving, setAutoSaving] = useState(false);
+  // 各模块快照状态（合同/订单/…）
+  const [moduleStatuses, setModuleStatuses] = useState<BizModuleSnapshotStatus[]>([]);
+  const [moduleLoading, setModuleLoading] = useState(false);
+  const [moduleRebuilding, setModuleRebuilding] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -73,6 +77,34 @@ export default function BizSettings() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const loadModules = useCallback(async () => {
+    setModuleLoading(true);
+    try {
+      const data = await bizModuleSnapshots();
+      setModuleStatuses(data.items ?? []);
+    } catch {
+      // 模块快照读取失败不影响通用设置展示
+    } finally {
+      setModuleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadModules(); }, [loadModules]);
+
+  const rebuildModules = async (code?: string) => {
+    setModuleRebuilding(code ?? 'all');
+    try {
+      await bizModuleSnapshotRebuild(code ? { codes: [code] } : undefined);
+      message.success(code ? '模块快照已更新' : '全部模块快照已更新');
+      await loadModules();
+    } catch (e: unknown) {
+      const detail = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      message.error(detail ?? '更新失败');
+    } finally {
+      setModuleRebuilding(null);
+    }
+  };
 
   const onSave = async (key: string) => {
     try {
@@ -122,6 +154,27 @@ export default function BizSettings() {
   // 自动更新配置独立成区，不混入通用设置表
   const genericItems = items.filter((it) => it.key !== AUTO_ENABLED_KEY && it.key !== AUTO_TIME_KEY);
 
+  const MODULE_STATE_COLOR: Record<string, string> = { ready: 'green', stale: 'orange', failed: 'red', missing: 'default' };
+  const MODULE_STATE_TEXT: Record<string, string> = { ready: '已就绪', stale: '已过期', failed: '构建失败', missing: '未生成' };
+
+  const moduleColumns = [
+    { title: '模块', dataIndex: 'label', key: 'label', width: 140 },
+    { title: '数据日期', dataIndex: 'asOf', key: 'asOf', width: 110, render: (v: string | null) => v ?? '—' },
+    { title: '构建时间', dataIndex: 'builtAt', key: 'builtAt', width: 160, render: (v: string | null) => (v ? fmtShort(v) : '—') },
+    { title: '耗时', dataIndex: 'buildMs', key: 'buildMs', width: 90, render: (v: number | null) => (v == null ? '—' : `${v} ms`) },
+    { title: '大小', dataIndex: 'sizeBytes', key: 'sizeBytes', width: 90, render: (v: number) => (v > 0 ? `${(v / 1024).toFixed(0)} KB` : '—') },
+    {
+      title: '状态', dataIndex: 'status', key: 'status', width: 110,
+      render: (v: string) => <Tag color={MODULE_STATE_COLOR[v] ?? 'default'}>{MODULE_STATE_TEXT[v] ?? v}</Tag>,
+    },
+    {
+      title: '操作', key: 'action', width: 90,
+      render: (_: unknown, row: BizModuleSnapshotStatus) => (
+        <Button size="small" loading={moduleRebuilding === row.code} onClick={() => void rebuildModules(row.code)}>更新</Button>
+      ),
+    },
+  ];
+
   return (
     <div className="v3-content">
       <div className="v3-page-head">
@@ -170,6 +223,25 @@ export default function BizSettings() {
             <Button loading={building} onClick={() => void requestUpdate()}>立即更新</Button>
           </Space>
         </Form>
+      </Card>
+
+      <Card
+        title="各模块快照"
+        size="small"
+        style={{ marginTop: 16 }}
+        extra={<Button size="small" loading={moduleRebuilding === 'all'} onClick={() => void rebuildModules()}>更新全部</Button>}
+      >
+        <div style={{ color: '#8c8c8c', marginBottom: 8 }}>
+          每个模块缓存首屏汇总与最近 50 条数据，与「经营分析数据更新」的定时任务一起刷新。超过 24 小时会标记为过期，页面将回落实时查询。
+        </div>
+        <Table
+          rowKey="code"
+          size="small"
+          columns={moduleColumns}
+          dataSource={moduleStatuses}
+          loading={moduleLoading}
+          pagination={false}
+        />
       </Card>
     </div>
   );

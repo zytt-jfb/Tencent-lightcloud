@@ -134,4 +134,23 @@ export const SNAPSHOT_DDL: string[] = [
   KEY idx_snapshot_ledger_snapshot (snapshot_id),
   KEY idx_snapshot_ledger_contract (contract_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+  /**
+   * 通用模块快照：每个业务模块（合同/订单/成本/线下完工/费率/维保/绩效/消息）一行一天。
+   * payload_json 只存"首屏所需"（汇总 + 前 N 条 + 图表点），不存全量，避免行体膨胀。
+   */
+  `CREATE TABLE IF NOT EXISTS biz_module_snapshot (
+  id VARCHAR(36) PRIMARY KEY,
+  module_code VARCHAR(64) NOT NULL,
+  as_of DATE NOT NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'ready',
+  payload_json LONGTEXT NOT NULL,
+  row_count INT NOT NULL DEFAULT 0,
+  size_bytes INT NOT NULL DEFAULT 0,
+  build_ms INT NULL,
+  error_message TEXT NULL,
+  built_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_module_snapshot (module_code, as_of),
+  KEY idx_module_snapshot_built (module_code, built_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 ];
