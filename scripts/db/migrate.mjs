@@ -768,6 +768,10 @@ async function inspectState(version) {
   if (version === '038_performance') {
     return allOrNothing([adapter.tableExists('biz_performance_batch'), adapter.tableExists('biz_performance_record'), adapter.indexExists('biz_performance_record', 'uk_perf_batch_supplier_org')]);
   }
+  if (version === '039_order_rows_covering_index') {
+    if (!await adapter.tableExists('biz_order_rows')) return 'empty';
+    return await adapter.indexExists('biz_order_rows', 'idx_order_scope_cover') ? 'satisfied' : 'empty';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

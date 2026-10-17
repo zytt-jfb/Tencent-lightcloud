@@ -57,9 +57,20 @@ if [ ! -f .env ]; then
   fi
 fi
 
-# ---------- 4. 构建镜像并重建容器（证书/数据卷在宿主机，不受影响）----------
+# ---------- 4. 构建镜像（含 migrate）----------
 # 源码有改动时必须重新 build，否则固定镜像名不会自动更新。
-log "构建镜像并启动服务"
-docker compose -f compose.yml build
+# migrate 服务定义在 compose 的 init profile 下，需显式带上 profile 才会一并构建。
+log "构建镜像"
+docker compose -f compose.yml --profile init build
+
+# ---------- 5. 应用数据库迁移（新增表/字段/索引）----------
+# migrate 服务内置 MIGRATION_APPROVED=true，且 depends_on mysql healthy；
+# 此时旧容器仍在运行，迁移成功后才重建容器——迁移失败即中止，不会把线上站点搞挂。
+# 说明：本项目迁移均为追加式（建表/加列/加索引），可安全地在旧代码运行期间执行。
+log "应用数据库迁移"
+docker compose -f compose.yml --profile init run --rm migrate
+
+# ---------- 6. 重建并启动容器（证书/数据卷在宿主机，不受影响）----------
+log "重建并启动服务"
 docker compose -f compose.yml up -d
 log "更新完成 ✅"
