@@ -1,0 +1,5 @@
+# 012 迁移文件在建立 checksum 清单时是 CRLF 换行，
+# 数据库 schema_migrations 记录的校验值（79d6285f...）对应 CRLF 版本。
+# Linux 部署时若按 git 默认转成 LF，会导致 precheck 报 checksum_drift 阻塞发布。
+# 用 -text 关闭该文件的换行转换，保证各平台检出内容与历史校验值一致。
+apps/api/migration/012_biz_permission_seed.sql -text
