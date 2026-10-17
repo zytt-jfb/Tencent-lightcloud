@@ -408,10 +408,17 @@ export class BizAggregateService {
     return false;
   }
 
-  /** 合同库存指标（从合同+分配表出发，含零进度合同）：合同数=可见合同数；合同额=未带地市筛选时全额、带地市筛选时按该地市配额比例分摊（与 byCity 同一口径） */
-  private async contractInventory(auth: BizAuthContext, cityId?: string, provinceId?: string): Promise<{ ids: Set<string>; amountFen: number }> {
-    const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() }, select: { id: true, provinceId: true, taxInclusiveAmountFen: true } });
-    const allocs = await this.allocRepo.find({ where: { status: 'active' } });
+  /**
+   * 合同库存纯计算：入参为**已加载**的合同与分配，避免调用方重复全表查询。
+   * 口径：合同数=可见合同数；合同额=未带地市筛选时全额、带地市筛选时按该地市配额比例分摊（与 byCity 同一口径）。
+   */
+  private computeContractInventory(
+    auth: BizAuthContext,
+    contracts: Array<{ id: string; provinceId: string; taxInclusiveAmountFen: number | string | null }>,
+    allocs: Array<{ contractId: string; cityId: string; quotaFen: number | string | null }>,
+    cityId?: string,
+    provinceId?: string,
+  ): { ids: Set<string>; amountFen: number } {
     const citiesByContract = new Map<string, Set<string>>();
     for (const a of allocs) {
       if (!citiesByContract.has(a.contractId)) citiesByContract.set(a.contractId, new Set());
@@ -441,6 +448,13 @@ export class BizAggregateService {
       amountFen = visible.reduce((sum, c) => sum + (Number(c.taxInclusiveAmountFen) || 0), 0);
     }
     return { ids: new Set(visible.map((c) => c.id)), amountFen };
+  }
+
+  /** 合同库存指标（自行加载合同与分配；供 overview / byCity 等单次调用方使用） */
+  private async contractInventory(auth: BizAuthContext, cityId?: string, provinceId?: string): Promise<{ ids: Set<string>; amountFen: number }> {
+    const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() }, select: { id: true, provinceId: true, taxInclusiveAmountFen: true } });
+    const allocs = await this.allocRepo.find({ where: { status: 'active' } });
+    return this.computeContractInventory(auth, contracts, allocs, cityId, provinceId);
   }
 
   /** 概览：经营金额按年度 / 多月 / 多省 / 多地市交集过滤（权限过滤始终生效）
@@ -749,7 +763,15 @@ export class BizAggregateService {
   async cityDetail(
     auth: BizAuthContext,
     cityId: string,
-    filters: { year?: string; months?: string[]; categoryCodes?: string[] } = {},
+    filters: {
+      year?: string;
+      months?: string[];
+      categoryCodes?: string[];
+      orderPage?: number;
+      orderPageSize?: number;
+      offlinePage?: number;
+      offlinePageSize?: number;
+    } = {},
   ) {
     // 1. 城市存在性 + 权限（404 / 403）
     const city = await this.dataSource.getRepository(CityEntity).findOneBy({ id: cityId });
@@ -759,6 +781,14 @@ export class BizAggregateService {
 
     const months = (filters.months ?? []).filter((m) => /^\d{4}-\d{2}$/.test(m));
     const categoryCodes = filters.categoryCodes ?? [];
+    // 明细分页参数（订单完工与线下完工各自独立分页）：默认 50 条/页，
+    // 硬上限 10000 用于导出场景一次取全量（生产单城市有效订单峰值约 7,500 条）。
+    const normPage = (value?: number): number => Math.max(1, Math.floor(Number(value) || 1));
+    const normSize = (value?: number): number => Math.min(10000, Math.max(1, Math.floor(Number(value) || 50)));
+    const orderPage = normPage(filters.orderPage);
+    const orderPageSize = normSize(filters.orderPageSize);
+    const offlinePage = normPage(filters.offlinePage);
+    const offlinePageSize = normSize(filters.offlinePageSize);
     const monthCond = (alias: string): { sql: string; params: Record<string, unknown> } | null => {
       if (months.length > 0) return { sql: `${alias}.businessMonth IN (:...detailMonths)`, params: { detailMonths: months } };
       if (filters.year && /^\d{4}$/.test(filters.year)) return { sql: `${alias}.businessMonth LIKE :detailYearPrefix`, params: { detailYearPrefix: `${filters.year}-%` } };
@@ -799,11 +829,12 @@ export class BizAggregateService {
     const grossProfitFen = (Number(orderAgg?.grossFen ?? 0) || 0) + (Number(offlineAgg?.grossFen ?? 0) || 0);
     const costFen = Number(costAgg?.amountFen ?? 0) || 0;
     const netProfitFen = grossProfitFen - costFen;
-    const inventory = await this.contractInventory(auth, cityId);
 
     // 3. 合同明细（可见合同 + 当前地市分配 + 当前地市累计完工/剩余/超额）
+    // 合同与分配只加载一次：库存指标与合同明细共用，避免同一请求内重复全表查询（原实现各查两遍）。
     const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() } });
     const allocs = await this.allocRepo.findBy({ status: 'active' });
+    const inventory = this.computeContractInventory(auth, contracts, allocs, cityId);
     const citiesByContract = new Map<string, Set<string>>();
     for (const a of allocs) {
       if (!citiesByContract.has(a.contractId)) citiesByContract.set(a.contractId, new Set());
@@ -916,7 +947,14 @@ export class BizAggregateService {
       .andWhere('o.validationStatus = :vs', { vs: 'valid' })
       .andWhere('o.cityId = :cityId', { cityId });
     if (orderMc) orderDetailQb.andWhere(orderMc.sql, orderMc.params);
-    const orderRows = await orderDetailQb.orderBy('o.businessMonth', 'DESC').addOrderBy('o.createdAt', 'DESC').limit(2000).getMany();
+    // 服务端分页：生产已出现单城市有效订单 7,529 条，原 LIMIT 2000 会静默截断明细与导出。
+    const orderTotal = await orderDetailQb.clone().getCount();
+    const orderRows = await orderDetailQb
+      .orderBy('o.businessMonth', 'DESC')
+      .addOrderBy('o.createdAt', 'DESC')
+      .skip((orderPage - 1) * orderPageSize)
+      .take(orderPageSize)
+      .getMany();
     const orderCompletions = orderRows.map((o) => ({
       businessMonth: o.businessMonth ?? null,
       purchaseOrderNo: o.purchaseOrderNo ?? null,
@@ -937,7 +975,13 @@ export class BizAggregateService {
       .where('f.status = :status', { status: 'approved' })
       .andWhere('f.cityId = :cityId', { cityId });
     if (offlineMc) offlineDetailQb.andWhere(offlineMc.sql, offlineMc.params);
-    const offlineRows = await offlineDetailQb.orderBy('f.businessMonth', 'DESC').addOrderBy('f.submittedAt', 'DESC').limit(2000).getMany();
+    const offlineTotal = await offlineDetailQb.clone().getCount();
+    const offlineRows = await offlineDetailQb
+      .orderBy('f.businessMonth', 'DESC')
+      .addOrderBy('f.submittedAt', 'DESC')
+      .skip((offlinePage - 1) * offlinePageSize)
+      .take(offlinePageSize)
+      .getMany();
     const offlineCompletions = offlineRows.map((f) => ({
       businessMonth: f.businessMonth,
       contractId: f.contractId,
@@ -973,7 +1017,13 @@ export class BizAggregateService {
       costs: costsOut,
       costTotal: totals,
       orderCompletions,
+      orderCompletionsTotal: orderTotal,
+      orderPage,
+      orderPageSize,
       offlineCompletions,
+      offlineCompletionsTotal: offlineTotal,
+      offlinePage,
+      offlinePageSize,
     };
   }
 

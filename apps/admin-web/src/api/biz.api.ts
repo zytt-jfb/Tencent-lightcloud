@@ -545,7 +545,7 @@ export function bizAnalysisAlerts(cityId?: string, provinceId?: string): Promise
 }
 
 /** 经营单位详情（只读聚合）：合同/成本/订单完工/线下完工明细 + 汇总指标（summary 为全量数据库聚合，与明细分页分离） */
-export function bizAnalysisCityDetail(cityId: string, params?: { year?: string; months?: string[]; categoryCodes?: string[] }): Promise<{
+export function bizAnalysisCityDetail(cityId: string, params?: { year?: string; months?: string[]; categoryCodes?: string[]; orderPage?: number; orderPageSize?: number; offlinePage?: number; offlinePageSize?: number }): Promise<{
   city: { id: string; name: string; provinceId: string; provinceName: string; unitType: 'city' | 'province_branch' };
   filters: { year: string | null; months: string[]; categoryCodes: string[] };
   summary: { contractCount: number; contractAmountFen: number; orderCompletionFen: number; offlineCompletionFen: number; costFen: number; grossProfitFen: number; netProfitFen: number };
@@ -553,12 +553,22 @@ export function bizAnalysisCityDetail(cityId: string, params?: { year?: string; 
   costs: Array<Record<string, unknown>>;
   costTotal: Record<string, number>;
   orderCompletions: Array<Record<string, unknown>>;
+  orderCompletionsTotal: number;
+  orderPage: number;
+  orderPageSize: number;
   offlineCompletions: Array<Record<string, unknown>>;
+  offlineCompletionsTotal: number;
+  offlinePage: number;
+  offlinePageSize: number;
 }> {
   const query: Record<string, string> = {};
   if (params?.year) query.year = params.year;
   if (params?.months?.length) query.months = params.months.join(',');
   if (params?.categoryCodes?.length) query.categoryCodes = params.categoryCodes.join(',');
+  if (params?.orderPage != null) query.orderPage = String(params.orderPage);
+  if (params?.orderPageSize != null) query.orderPageSize = String(params.orderPageSize);
+  if (params?.offlinePage != null) query.offlinePage = String(params.offlinePage);
+  if (params?.offlinePageSize != null) query.offlinePageSize = String(params.offlinePageSize);
   return request.get(`/biz/analysis/city/${encodeURIComponent(cityId)}`, { params: query }).then((r) => r.data);
 }
 

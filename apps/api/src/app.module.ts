@@ -83,7 +83,9 @@ import { PerformanceModule } from './performance/performance.module';
             entities: [__dirname + '/**/*.entity.ts', __dirname + '/**/*.entity.js'],
             // M8 安全修复：DB_SYNC 字符串 'false' 不得被误判为 true（生产强制 false）
             synchronize: isProduction ? false : config.get<string>('DB_SYNC', 'false') === 'true',
-            logging: config.get<boolean>('DB_LOGGING', false),
+            // ConfigService 从 .env 读到的是字符串，直接 get<boolean> 只是类型断言，
+            // 实际仍是 "true"/"false" 字符串 —— TypeORM 只识别布尔 true，导致 DB_LOGGING 配置长期失效。
+            logging: String(config.get<string>('DB_LOGGING', 'false')).toLowerCase() === 'true',
           };
         }
 

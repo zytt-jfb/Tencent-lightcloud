@@ -24,6 +24,15 @@ export default defineConfig({
     commonjsOptions: {
       include: [/shared-types/, /shared-constants/, /node_modules/],
     },
+    // 拆出体积最大的两个第三方依赖：业务代码改动时这两个 chunk 的 hash 不变，可继续命中浏览器缓存。
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'antd-vendor': ['antd', '@ant-design/icons'],
+        },
+      },
+    },
   },
 
   server: {

@@ -91,11 +91,19 @@ export class BizAggregateController {
     @Query('year') year?: string,
     @Query('months') months?: string,
     @Query('categoryCodes') categoryCodes?: string,
+    @Query('orderPage') orderPage?: string,
+    @Query('orderPageSize') orderPageSize?: string,
+    @Query('offlinePage') offlinePage?: string,
+    @Query('offlinePageSize') offlinePageSize?: string,
   ) {
     return this.service.cityDetail(auth, cityId, {
       year,
       months: typeof months === 'string' && months ? months.split(',').filter(Boolean) : [],
       categoryCodes: typeof categoryCodes === 'string' && categoryCodes ? categoryCodes.split(',').filter(Boolean) : [],
+      orderPage: orderPage ? Number(orderPage) : undefined,
+      orderPageSize: orderPageSize ? Number(orderPageSize) : undefined,
+      offlinePage: offlinePage ? Number(offlinePage) : undefined,
+      offlinePageSize: offlinePageSize ? Number(offlinePageSize) : undefined,
     });
   }
 

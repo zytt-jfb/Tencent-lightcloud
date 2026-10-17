@@ -55,12 +55,19 @@ export default function BizAnalysisCityDetail() {
   const [data, setData] = useState<Awaited<ReturnType<typeof bizAnalysisCityDetail>> | null>(null);
   const [snapshot, setSnapshot] = useState<Awaited<ReturnType<typeof bizAnalysisCityDetailSnapshot>> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  // 明细服务端分页：订单完工与线下完工各自独立，避免一个表格翻页时另一个变空
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderPageSize, setOrderPageSize] = useState(50);
+  const [offlinePage, setOfflinePage] = useState(1);
+  const [offlinePageSize, setOfflinePageSize] = useState(50);
   const [error, setError] = useState<string | null>(null);
   // #5 合同详情 Drawer（在当前页打开，不跳走）
   const [drawerDetail, setDrawerDetail] = useState<BizContractDetail | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
 
+  /** 头部快照与年度选项：只随城市变化加载，翻页/改筛选不重复请求 */
   const load = useCallback(async () => {
     if (!cityId) return;
     setLoading(true);
@@ -79,19 +86,56 @@ export default function BizAnalysisCityDetail() {
       setError(status === 403 ? '当前账号无权查看该地市数据' : status === 404 ? '地市不存在' : '地市详情加载失败，请稍后重试');
       setSnapshot(null);
       setData(null);
-      setLoading(false);
-      return;
-    }
-    // 实时明细（成本/订单/线下完工）仍走实时接口，与快照口径分离；失败不影响快照主体
-    try {
-      const detail = await bizAnalysisCityDetail(cityId, { year, months: months.length ? months : undefined, categoryCodes: categoryCodes.length ? categoryCodes : undefined });
-      setData(detail);
-    } catch {
-      setData(null);
     } finally {
       setLoading(false);
     }
-  }, [cityId, year, months, categoryCodes]);
+  }, [cityId]);
+
+  /** 实时明细（成本/订单/线下完工）：与快照口径分离，失败不影响快照主体 */
+  const loadDetail = useCallback(async () => {
+    if (!cityId) return;
+    setDetailLoading(true);
+    try {
+      setData(await bizAnalysisCityDetail(cityId, {
+        year,
+        months: months.length ? months : undefined,
+        categoryCodes: categoryCodes.length ? categoryCodes : undefined,
+        orderPage,
+        orderPageSize,
+        offlinePage,
+        offlinePageSize,
+      }));
+    } catch {
+      setData(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [cityId, year, months, categoryCodes, orderPage, orderPageSize, offlinePage, offlinePageSize]);
+
+  /** 导出：明细已改为服务端分页，这里单独取全量（pageSize 上限 10000）再写文件，避免只导出当前页 */
+  const handleExport = async () => {
+    if (!snapshot) return;
+    const full = await bizAnalysisCityDetail(cityId, {
+      year,
+      months: months.length ? months : undefined,
+      categoryCodes: categoryCodes.length ? categoryCodes : undefined,
+      orderPage: 1,
+      orderPageSize: 10000,
+      offlinePage: 1,
+      offlinePageSize: 10000,
+    }).catch(() => null);
+    if (!full) message.warning('全量明细拉取失败，本次导出将使用当前页数据');
+    const exportOrders = full?.orderCompletions ?? data?.orderCompletions ?? [];
+    const exportOffline = full?.offlineCompletions ?? data?.offlineCompletions ?? [];
+    writeWorkbook(`地市详情-${city?.name ?? cityId}-${year}.xlsx`, [
+      { name: '经营汇总', rows: [['指标', '金额（元）'], ['合同数', summary?.contractCount ?? 0], ['合同额', fenToYuan(summary?.contractAmountFen ?? 0)], ['订单完工', fenToYuan(summary?.orderCompletionFen ?? 0)], ['线下完工', fenToYuan(summary?.offlineCompletionFen ?? 0)], ['成本', fenToYuan(summary?.costFen ?? 0)], ['毛利', fenToYuan(summary?.grossProfitFen ?? 0)], ['净利', fenToYuan(summary?.netProfitFen ?? 0)]] },
+      { name: '合同明细', rows: contracts.length ? [Object.keys(contracts[0]), ...contracts.map((row) => Object.values(row))] : [['合同明细']] },
+      { name: '成本汇总', rows: costRows.length ? [Object.keys(costRows[0]), ...costRows.map((row) => Object.values(row))] : [['成本汇总']] },
+      { name: '成本明细', rows: (data?.costs ?? []).flatMap((row) => row.entries ?? []).length ? [Object.keys((data?.costs ?? []).flatMap((row) => row.entries ?? [])[0]), ...(data?.costs ?? []).flatMap((row) => row.entries ?? []).map((row) => Object.values(row))] : [['成本明细']] },
+      { name: '订单完工', rows: exportOrders.length ? [Object.keys(exportOrders[0]), ...exportOrders.map((row) => Object.values(row))] : [['订单完工']] },
+      { name: '线下完工', rows: exportOffline.length ? [Object.keys(exportOffline[0]), ...exportOffline.map((row) => Object.values(row))] : [['线下完工']] },
+    ]);
+  };
 
   /** #5 合同编号点击：在当前页打开只读合同详情 Drawer，不跳转到合同概览/合同管理 */
   const openContractDetail = async (contractId: string) => {
@@ -109,6 +153,7 @@ export default function BizAnalysisCityDetail() {
   };
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void loadDetail(); }, [loadDetail]);
 
   const monthOptions = useMemo(() => {
     const opts: Array<{ value: string; label: string }> = [];
@@ -222,37 +267,30 @@ export default function BizAnalysisCityDetail() {
         <Space className="v3-page-head-actions" wrap>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/biz/analysis/cities')}>返回地市对比</Button>
           <Button icon={<HomeOutlined />} onClick={() => navigate('/biz/portal')}>返回门户首页</Button>
-          <Button icon={<DownloadOutlined />} disabled={!snapshot} onClick={() => writeWorkbook(`地市详情-${city?.name ?? cityId}-${year}.xlsx`, [
-            { name: '经营汇总', rows: [['指标', '金额（元）'], ['合同数', summary?.contractCount ?? 0], ['合同额', fenToYuan(summary?.contractAmountFen ?? 0)], ['订单完工', fenToYuan(summary?.orderCompletionFen ?? 0)], ['线下完工', fenToYuan(summary?.offlineCompletionFen ?? 0)], ['成本', fenToYuan(summary?.costFen ?? 0)], ['毛利', fenToYuan(summary?.grossProfitFen ?? 0)], ['净利', fenToYuan(summary?.netProfitFen ?? 0)]] },
-            { name: '合同明细', rows: contracts.length ? [Object.keys(contracts[0]), ...contracts.map((row) => Object.values(row))] : [['合同明细']] },
-            { name: '成本汇总', rows: costRows.length ? [Object.keys(costRows[0]), ...costRows.map((row) => Object.values(row))] : [['成本汇总']] },
-            { name: '成本明细', rows: (data?.costs ?? []).flatMap((row) => row.entries ?? []).length ? [Object.keys((data?.costs ?? []).flatMap((row) => row.entries ?? [])[0]), ...(data?.costs ?? []).flatMap((row) => row.entries ?? []).map((row) => Object.values(row))] : [['成本明细']] },
-            { name: '订单完工', rows: data?.orderCompletions?.length ? [Object.keys(data.orderCompletions[0]), ...data.orderCompletions.map((row) => Object.values(row))] : [['订单完工']] },
-            { name: '线下完工', rows: data?.offlineCompletions?.length ? [Object.keys(data.offlineCompletions[0]), ...data.offlineCompletions.map((row) => Object.values(row))] : [['线下完工']] },
-          ])}>导出 Excel</Button>
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>
+          <Button icon={<DownloadOutlined />} disabled={!snapshot} onClick={() => { void handleExport(); }}>导出 Excel</Button>
+          <Button icon={<ReloadOutlined />} loading={loading || detailLoading} onClick={() => { void load(); void loadDetail(); }}>刷新</Button>
         </Space>
       </div>
       <div className="v3-toolbar">
         <Select
           data-testid="city-detail-year-filter"
           value={year} style={{ width: 120 }} options={years.map((y) => ({ value: y, label: `${y}年` }))}
-          onChange={(v) => { setYear(v); setMonths([]); }}
+          onChange={(v) => { setYear(v); setMonths([]); setOrderPage(1); setOfflinePage(1); }}
         />
         <Select
           data-testid="city-detail-month-filter"
           mode="multiple" maxTagCount="responsive" allowClear value={months} placeholder="可多选月份（01月…）" style={{ width: 240 }}
-          options={monthOptions} onChange={setMonths}
+          options={monthOptions} onChange={(v) => { setMonths(v); setOrderPage(1); setOfflinePage(1); }}
         />
         <Select
           data-testid="city-detail-category-filter"
           mode="multiple" maxTagCount="responsive" allowClear value={categoryCodes} placeholder="可多选成本类别" style={{ width: 260 }}
-          options={COST_CATEGORY_OPTIONS} onChange={setCategoryCodes}
+          options={COST_CATEGORY_OPTIONS} onChange={(v) => { setCategoryCodes(v); setOrderPage(1); setOfflinePage(1); }}
         />
       </div>
       <div className="v3-note">当前筛选条件：{filterSummary}。地市与省份固定为当前地市，不可再选其他地市。{snapshotReady ? `页面头部汇总指标与合同明细读取经营分析快照（基准日 ${snapshot?.asOf ?? '-'}）。` : '尚未生成经营分析快照，头部汇总指标与合同明细回退实时数据。'}订单完工/线下完工/成本原始明细按筛选范围实时聚合。</div>
 
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} action={<Button size="small" onClick={() => void load()}>重试</Button>} />}
+      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} action={<Button size="small" onClick={() => { void load(); void loadDetail(); }}>重试</Button>} />}
 
       {!error && (
         <>
@@ -327,8 +365,8 @@ export default function BizAnalysisCityDetail() {
                     <Tabs
                       size="small"
                       items={[
-                        { key: 'order', label: `订单完工（${data?.orderCompletions?.length ?? 0}）`, children: <Table size="small" rowKey="id" scroll={{ x: 'max-content' }} loading={loading} dataSource={data?.orderCompletions ?? []} locale={{ emptyText: '暂无数据' }} pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }} columns={orderColumns} /> },
-                        { key: 'offline', label: `线下完工（${data?.offlineCompletions?.length ?? 0}）`, children: <Table size="small" rowKey="id" scroll={{ x: 'max-content' }} loading={loading} dataSource={data?.offlineCompletions ?? []} locale={{ emptyText: '暂无数据' }} pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条` }} columns={offlineColumns} /> },
+                        { key: 'order', label: `订单完工（${data?.orderCompletionsTotal ?? 0}）`, children: <Table size="small" rowKey="id" scroll={{ x: 'max-content' }} loading={detailLoading} dataSource={data?.orderCompletions ?? []} locale={{ emptyText: '暂无数据' }} pagination={{ current: orderPage, pageSize: orderPageSize, total: data?.orderCompletionsTotal ?? 0, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (t: number) => `共 ${t} 条`, onChange: (p: number, s: number) => { setOrderPage(p); setOrderPageSize(s); } }} columns={orderColumns} /> },
+                        { key: 'offline', label: `线下完工（${data?.offlineCompletionsTotal ?? 0}）`, children: <Table size="small" rowKey="id" scroll={{ x: 'max-content' }} loading={detailLoading} dataSource={data?.offlineCompletions ?? []} locale={{ emptyText: '暂无数据' }} pagination={{ current: offlinePage, pageSize: offlinePageSize, total: data?.offlineCompletionsTotal ?? 0, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (t: number) => `共 ${t} 条`, onChange: (p: number, s: number) => { setOfflinePage(p); setOfflinePageSize(s); } }} columns={offlineColumns} /> },
                       ]}
                     />
                   ),
