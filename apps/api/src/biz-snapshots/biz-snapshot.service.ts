@@ -318,6 +318,27 @@ export class BizSnapshotService implements OnModuleInit {
     return { enabled, time };
   }
 
+  /**
+   * 释放长时间停留在 building 的任务。
+   * 容器重启/发布中断会留下这类记录：内存锁随进程消失，但数据库状态仍是 building，
+   * 会让后续 requestBuild 误判"已有任务在跑"而拒绝执行。
+   */
+  async releaseStaleBuilds(maxAgeMs = 30 * 60 * 1000): Promise<number> {
+    const building = await this.runRepo.find({ where: { status: 'building' } });
+    let released = 0;
+    for (const run of building) {
+      const startedAt = new Date(run.startedAt).getTime();
+      if (Number.isFinite(startedAt) && Date.now() - startedAt <= maxAgeMs) continue;
+      await this.runRepo.update(run.id, {
+        status: 'failed',
+        errorMessage: '服务重启时清理：快照任务超时未完成，已释放更新锁',
+        finishedAt: new Date(),
+      });
+      released += 1;
+    }
+    return released;
+  }
+
   // ================= 快照生成（全局，无 auth） =================
 
   /** 真正执行快照预计算：全局查询 → 事务写入 metrics/contracts/alerts → 原子切换 registry */

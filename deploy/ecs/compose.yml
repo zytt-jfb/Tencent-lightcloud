@@ -67,6 +67,9 @@ services:
     restart: unless-stopped
     environment:
       PORT: 3000
+      # 关键：容器默认 UTC。快照定时任务按进程本地时区解释 "03:00"，
+      # 未设置时区时会变成 UTC 03:00 = 北京时间 11:00（线上实际表现）。
+      TZ: Asia/Shanghai
       NODE_ENV: production
       DEPLOY_ENV: production
       DB_TYPE: mysql

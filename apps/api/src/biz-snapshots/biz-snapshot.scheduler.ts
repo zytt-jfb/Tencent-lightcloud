@@ -22,6 +22,9 @@ export class BizSnapshotScheduler implements OnModuleInit {
   constructor(private readonly snapshots: BizSnapshotService) {}
 
   async onModuleInit(): Promise<void> {
+    // 容器重启/发布中断会把正在构建的任务留在 building 状态，先释放再注册，避免阻塞当天定时构建
+    const released = await this.snapshots.releaseStaleBuilds();
+    if (released > 0) this.logger.warn(`[BizSnapshot] 启动时释放了 ${released} 个僵尸构建任务`);
     await this.reschedule();
   }
 
@@ -35,15 +38,25 @@ export class BizSnapshotScheduler implements OnModuleInit {
       return;
     }
     const [hh, mm] = cfg.time.split(':').map((n) => Number(n));
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(hh, mm, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-    const delay = Math.max(next.getTime() - now.getTime(), 1000);
+    // 显式按 Asia/Shanghai（UTC+8，无夏令时）计算，不依赖容器 TZ。
+    // 历史问题：原先用 setHours 依赖进程本地时区，容器为 UTC 时 "03:00" 被当成 UTC 03:00，
+    // 实际在北京时间 11:00 触发（生产 run 记录全部落在 11:00:00 即为此因）。
+    const CST_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const nowCstMs = Date.now() + CST_OFFSET_MS;
+    const nextCst = new Date(nowCstMs);
+    nextCst.setUTCHours(hh, mm, 0, 0);
+    if (nextCst.getTime() <= nowCstMs) nextCst.setUTCDate(nextCst.getUTCDate() + 1);
+    const nextUtcMs = nextCst.getTime() - CST_OFFSET_MS;
+    const delay = Math.max(nextUtcMs - Date.now(), 1000);
     this.timer = setTimeout(() => {
       void this.runScheduledBuild();
     }, delay);
-    this.logger.log(`[BizSnapshot] 已注册定时任务 time=${cfg.time} next=${next.toISOString()}`);
+    const nextText = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(nextUtcMs));
+    this.logger.log(`[BizSnapshot] 已注册定时任务 time=${cfg.time}（Asia/Shanghai）next=${nextText}`);
   }
 
   private async runScheduledBuild(): Promise<void> {
