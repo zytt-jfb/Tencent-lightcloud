@@ -30,7 +30,10 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
-    mem_limit: 512m
+    # 实测：MySQL 曾以 506MiB/512MiB 顶格运行（98.9%）并开始换页，而 api 实际仅用 ~83MiB。
+    # 注意 mem_limit 是上限而非预留：调低 api 不会释放物理内存，反而会压缩 Node heap 上限，
+    # 因此这里只把 MySQL 提到 768m（buffer pool 512m + 连接/临时表余量），api/frontend 维持原值。
+    mem_limit: 768m
     cpus: 1.0
 
   # 一次性服务：首次启动执行数据库迁移（建表/增量），由 --profile init 触发。

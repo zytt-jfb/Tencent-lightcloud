@@ -63,6 +63,17 @@ fi
 log "构建镜像"
 docker compose -f compose.yml --profile init build
 
+# ---------- 4.5 迁移前备份（保留最近 3 份）----------
+# 迁移可能变更表结构/索引，先留回滚点；备份失败即中止，不执行迁移、也不重建容器。
+log "备份数据库（迁移前）"
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+bash "$COMPOSE_DIR/backup.sh" || { log "【中止】数据库备份失败，未执行迁移与重启"; exit 1; }
+ls -1t "${DATA_ROOT}/backups/mysql"/*.sql.gz 2>/dev/null | tail -n +4 | xargs -r rm -f || true
+log "备份完成（保留最近 3 份）"
+
 # ---------- 5. 应用数据库迁移（新增表/字段/索引）----------
 # migrate 服务内置 MIGRATION_APPROVED=true，且 depends_on mysql healthy；
 # 此时旧容器仍在运行，迁移成功后才重建容器——迁移失败即中止，不会把线上站点搞挂。
