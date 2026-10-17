@@ -6,7 +6,8 @@ import { DownloadOutlined, InboxOutlined, ReloadOutlined, UploadOutlined } from 
 import dayjs from 'dayjs';
 import { exportPageRows } from '@/utils/page-export-core';
 import {
-  bizAdminCities, bizAdminProvinces, bizContractList, bizMe, bizOrderBatches, bizOrderBatchDetail, bizOrderBatchDelete, bizOrderUpload, bizOrderRows, bizOrderRowMaintain, bizOrderReviewExport,
+  bizAdminCities, bizAdminProvinces, bizContractList, bizMe, bizModuleSnapshot, bizOrderBatches, bizOrderBatchDetail, bizOrderBatchDelete, bizOrderUpload, bizOrderRows, bizOrderRowMaintain, bizOrderReviewExport,
+  type BizModuleSnapshotView,
 } from '@/api/biz.api';
 
 const { Title } = Typography;
@@ -35,6 +36,8 @@ export default function BizOrders() {
   const navigate = useNavigate();
   const canUpload = useBizPermission('operation.order.upload');
   const [batches, setBatches] = useState<Array<Record<string, unknown>>>([]);
+  // 模块快照概览：只读展示（数据来自系统设置里"各模块快照"最近一次构建）
+  const [orderSnapshot, setOrderSnapshot] = useState<BizModuleSnapshotView | null>(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<{ batch: Record<string, unknown>; errors: Array<Record<string, unknown>>; rowCount: number } | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -103,6 +106,14 @@ export default function BizOrders() {
     if (canUpload !== true) return;
     void loadRows();
   }, [loadRows, canUpload]);
+
+  // 快照概览独立加载：失败不影响主表格与上传功能
+  useEffect(() => {
+    if (canUpload !== true) return;
+    void bizModuleSnapshot('orders')
+      .then((snap) => setOrderSnapshot(snap))
+      .catch(() => setOrderSnapshot(null));
+  }, [canUpload]);
 
   useEffect(() => {
     if (canUpload !== true) return;
@@ -373,6 +384,34 @@ export default function BizOrders() {
         </Space>
       </div>
 
+      {orderSnapshot?.payload && (
+        <Card size="small" style={{ marginBottom: 16 }} title="数据快照">
+          <Space size={56} wrap>
+            <div>
+              <div style={{ color: '#8c8c8c', fontSize: 12 }}>有效订单数</div>
+              <div style={{ fontSize: 20, fontWeight: 600 }}>{String(orderSnapshot.payload.summary.validOrderCount ?? 0)}</div>
+            </div>
+            <div>
+              <div style={{ color: '#8c8c8c', fontSize: 12 }}>完工金额（元）</div>
+              <div style={{ fontSize: 20, fontWeight: 600 }}>{fenToYuan(Number(orderSnapshot.payload.summary.completionFen ?? 0))}</div>
+            </div>
+            <div>
+              <div style={{ color: '#8c8c8c', fontSize: 12 }}>毛利（元）</div>
+              <div style={{ fontSize: 20, fontWeight: 600 }}>{fenToYuan(Number(orderSnapshot.payload.summary.grossProfitFen ?? 0))}</div>
+            </div>
+            <div>
+              <div style={{ color: '#8c8c8c', fontSize: 12 }}>数据截至</div>
+              <div style={{ fontSize: 14 }}>
+                {orderSnapshot.asOf ?? '—'}
+                {orderSnapshot.stale && <Tag color="orange" style={{ marginLeft: 8 }}>已过期</Tag>}
+              </div>
+            </div>
+          </Space>
+          <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 8 }}>
+            概览来自模块快照（系统设置 → 各模块快照），与下方实时列表口径不同，仅供快速浏览。
+          </div>
+        </Card>
+      )}
       <Card title="上传订单全量总表（.xlsx，≤50MB，≤30 万行，单工作表）" style={{ marginBottom: 16 }}>
         <Upload.Dragger
           accept=".xlsx"
