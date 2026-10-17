@@ -13,6 +13,7 @@
     "db:migrate:status": "node scripts/db/migrate.mjs status",
     "db:migrate": "node scripts/db/migrate.mjs up",
     "migration-files:check": "node scripts/db/migrate.mjs check-files",
+    "db:migration:new": "node scripts/db/new-migration.mjs",
     "auth:promote-root": "node scripts/auth/promote-root.mjs",
     "auth:root-readiness": "node scripts/auth/promote-root.mjs --check",
     "test:migrations:mysql": "node scripts/test/run-migrations-mysql.mjs",

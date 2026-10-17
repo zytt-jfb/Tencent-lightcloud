@@ -1,0 +1,35 @@
+name: ci
+
+# 提交/PR 卡点：迁移文件一致性、类型检查、全量构建。
+# 部署走 Gitee -> 服务器，但代码同时托管在 GitHub，PR 与推送都能在这里被拦住。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 与本地执行完全相同的入口，避免 CI 与本地两套逻辑
+      - name: 校验（迁移一致性 + 类型 + 构建）
+        run: bash scripts/ci/verify.sh
