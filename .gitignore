@@ -62,3 +62,8 @@ CODEBUDDY.md
 
 # Release build output
 /scripts/release/out/
+
+# Stray local artifacts (AI/tool scratch, accidental nested dirs)
+.tmp/
+.claude/
+apps/api/apps/
