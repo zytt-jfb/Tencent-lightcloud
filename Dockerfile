@@ -16,7 +16,11 @@ COPY packages/shared-types/package.json ./packages/shared-types/
 COPY packages/shared-constants/package.json ./packages/shared-constants/
 COPY apps/api/package.json ./apps/api/
 
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@9 --registry=https://registry.npmmirror.com
+# 国内镜像源：实测 registry.npmjs.org 仅 562KB/s，npmmirror 3335KB/s（快 6 倍）。
+# pnpm install 需下载数百 MB 依赖，这是构建耗时从 8 分钟涨到 40+ 分钟的主因。
+# lockfile 的 integrity 校验不受影响（镜像内容与官方一致）。
+RUN pnpm config set registry https://registry.npmmirror.com
 RUN pnpm config set script-shell /bin/sh
 
 # pnpm store 挂载为构建缓存：依赖包跨构建复用，避免每次都从 registry 重新拉取。
