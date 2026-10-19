@@ -78,7 +78,27 @@ export default function BizContractOverview() {
       const params = { keyword: keyword.trim() || undefined, provinceId, cityId, status, startDate: dates[0]?.format('YYYY-MM-DD'), endDate: dates[1]?.format('YYYY-MM-DD') };
       const first = await bizContractLedger({ ...params, page: 1, pageSize: 200 });
       const pages = await Promise.all(Array.from({ length: Math.ceil(first.total / first.pageSize) - 1 }, (_, index) => bizContractLedger({ ...params, page: index + 2, pageSize: first.pageSize })));
-      exportPageRows('合同概览', [first.items, ...pages.map((result) => result.items)].flat(), '当前筛选');
+      const all = [first.items, ...pages.map((result) => result.items)].flat();
+      // 导出前统一中文化：表头用中文列名、枚举转中文、金额转元（保持数值便于 Excel 计算），
+      // 内部 UUID（id/contractId/provinceId/sourceUploadRecordId）一律不导出。
+      const rows = all.map((row) => {
+        const eff = effectiveContractStatus(row);
+        return {
+          '合同编号': row.contractNo ?? '-',
+          '合同名称': row.contractName ?? '-',
+          '省份': row.provinceName ?? provinces.find((item) => item.id === row.provinceId)?.name ?? '-',
+          '含税合同额(元)': Math.round(Number(row.taxInclusiveAmountFen) || 0) / 100,
+          '累计完工(元)': Math.round(Number(row.cumulativeCompletionFen) || 0) / 100,
+          '完工进度(%)': row.completionProgressPct == null ? '-' : Number(row.completionProgressPct),
+          '状态': CONTRACT_STATUS_TEXT[eff.status] ?? eff.status ?? '-',
+          '签订日期': row.signedDate ?? '-',
+          '开始日期': row.startDate ?? '-',
+          '合同到期': row.endDate ?? '-',
+          '数据基准日': eff.statusAsOf ?? '-',
+          '台账来源': row.sourceUploadRecordId ? '已上传台账' : '未上传',
+        };
+      });
+      exportPageRows('合同概览', rows, '当前筛选');
     } finally { setExporting(false); }
   };
 
