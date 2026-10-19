@@ -573,7 +573,7 @@ export function bizAnalysisCityDetail(cityId: string, params?: { year?: string; 
 }
 
 /** 经营单位详情（快照口径）：与经营分析概览/单位对比/预警同一 ready 快照；无 ready 快照时 status='none'、summary=null、contracts=[] */
-export function bizAnalysisCityDetailSnapshot(cityId: string): Promise<{
+export function bizAnalysisCityDetailSnapshot(cityId: string, year?: string): Promise<{
   snapshotId: string | null;
   asOf: string | null;
   status: string;
@@ -582,7 +582,7 @@ export function bizAnalysisCityDetailSnapshot(cityId: string): Promise<{
   contracts: Array<Record<string, unknown>>;
   overruns: Array<Record<string, unknown>>;
 }> {
-  return request.get(`/biz/analysis/city/${encodeURIComponent(cityId)}/snapshot`).then((r) => r.data);
+  return request.get(`/biz/analysis/city/${encodeURIComponent(cityId)}/snapshot`, { params: year ? { year } : {} }).then((r) => r.data);
 }
 
 /** 批量合同完工进度（合同概览"完工进度"列用）：返回 { [contractId]: pct(两位小数数值) | null }；金额<=0 或缺失 → null */

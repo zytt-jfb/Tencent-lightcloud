@@ -75,7 +75,7 @@ export default function BizAnalysisCityDetail() {
     try {
       const [yearsResult, snap] = await Promise.all([
         bizAnalysisYears(),
-        bizAnalysisCityDetailSnapshot(cityId),
+        bizAnalysisCityDetailSnapshot(cityId, year),
       ]);
       const yearSet = new Set<string>([String(new Date().getFullYear())]);
       for (const y of yearsResult?.items ?? []) yearSet.add(String(y));
@@ -89,7 +89,7 @@ export default function BizAnalysisCityDetail() {
     } finally {
       setLoading(false);
     }
-  }, [cityId]);
+  }, [cityId, year]);
 
   /** 实时明细（成本/订单/线下完工）：与快照口径分离，失败不影响快照主体 */
   const loadDetail = useCallback(async () => {

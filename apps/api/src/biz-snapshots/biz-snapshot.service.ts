@@ -946,7 +946,7 @@ export class BizSnapshotService implements OnModuleInit {
   async snapshotCityDetail(
     auth: BizAuthContext,
     cityId: string,
-    _opts: { year?: string; months?: string[]; categoryCodes?: string[] } = {},
+    opts: { year?: string; months?: string[]; categoryCodes?: string[] } = {},
   ): Promise<{
     snapshotId: string | null;
     asOf: string | null;
@@ -999,11 +999,28 @@ export class BizSnapshotService implements OnModuleInit {
       fin.netProfitFen += fenValue(m.netProfitFen);
     }
 
+    // 年度口径：与经营概览保持一致 —— 合同有效期与所选年度有交集才计入，
+    // 数量、金额与下方合同明细同步过滤，避免"数字 3 条、列表 10 行"的口径冲突。
+    const filterYear = opts.year && /^\d{4}$/.test(opts.year) ? opts.year : null;
+    const yearStart = filterYear ? `${filterYear}-01-01` : null;
+    const yearEnd = filterYear ? `${filterYear}-12-31` : null;
+    const contractSnapsForYear = filterYear
+      ? contractSnaps.filter((s) => {
+          const c = contractById.get(s.contractId);
+          if (!c) return false;
+          const signed = c.signedDate ? String(c.signedDate) : null;
+          const end = c.endDate ? String(c.endDate) : null;
+          if (signed && yearEnd && signed > yearEnd) return false; // 该年度尚未签订
+          if (end && yearStart && end < yearStart) return false; // 该年度之前已到期
+          return true;
+        })
+      : contractSnaps;
+
     let contractCount = 0;
     let contractAmountFen = 0;
     const contractOut: Array<Record<string, unknown>> = [];
     const snapAsOf = registry.currentAsOf; // 快照判断基准日：快照页一律用快照 asOf，不用客户端当日
-    for (const s of contractSnaps) {
+    for (const s of contractSnapsForYear) {
       const c = contractById.get(s.contractId);
       if (!c) continue;
       contractCount += 1;

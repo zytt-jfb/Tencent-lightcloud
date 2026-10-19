@@ -110,8 +110,8 @@ export class BizAggregateController {
   /** 经营单位详情（快照口径，与概览/单位对比/预警同一 ready 快照；无 ready 快照时 status='none'） */
   @Get('analysis/city/:cityId/snapshot')
   @BizPermissions(BizPermissionCode.OPERATION_ANALYSIS_READ)
-  async cityDetailSnapshot(@BizAuthUser() auth: BizAuthContext, @Param('cityId') cityId: string) {
-    return this.snapshots.snapshotCityDetail(auth, cityId);
+  async cityDetailSnapshot(@BizAuthUser() auth: BizAuthContext, @Param('cityId') cityId: string, @Query('year') year?: string) {
+    return this.snapshots.snapshotCityDetail(auth, cityId, { year });
   }
 
   // ---- 统一 dashboard（一次返回 overview/trend/byCity/alerts + 快照元数据；快照未生成时回退实时聚合）----
