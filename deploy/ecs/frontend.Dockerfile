@@ -8,8 +8,12 @@ COPY packages/shared-types/package.json packages/shared-types/package.json
 COPY packages/shared-constants/package.json packages/shared-constants/package.json
 COPY apps/admin-web/package.json apps/admin-web/package.json
 
-RUN npm install -g pnpm@9.15.0 \
-  && pnpm install --frozen-lockfile --prefer-offline
+# 国内镜像源 + pnpm store 缓存 + 只安装 admin-web 及其依赖：
+# 原写法走官方源全量安装，与 api / migrate 镜像各跑一次，是构建耗时 27~42 分钟的主因之一。
+RUN npm install -g pnpm@9.15.0 --registry=https://registry.npmmirror.com
+RUN pnpm config set registry https://registry.npmmirror.com
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prefer-offline --filter @biz-reporting/admin-web...
 
 COPY packages/shared-types packages/shared-types
 COPY packages/shared-constants packages/shared-constants

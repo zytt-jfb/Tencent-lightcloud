@@ -79,8 +79,10 @@ if [ "$PULL_ONLY" = "1" ]; then
   docker compose -f compose.yml pull api frontend \
     || { log "【中止】镜像拉取失败，请检查仓库地址与登录状态"; exit 1; }
 else
-  log "构建镜像"
-  docker compose -f compose.yml --profile init build
+  # 只构建 api 与 frontend。migrate 不再单独构建 —— 每个镜像构建都会各跑一次 pnpm install，
+  # 三次全量安装正是单次发布耗时 27~42 分钟的主因；迁移改为复用 api 镜像执行。
+  log "构建镜像（api / frontend）"
+  docker compose -f compose.yml build api frontend
 fi
 
 # ---------- 4.5 迁移前备份（保留最近 3 份）----------
@@ -97,16 +99,11 @@ log "备份完成（保留最近 3 份）"
 # ---------- 5. 应用数据库迁移（新增表/字段/索引）----------
 # 此时旧容器仍在运行，迁移成功后才重建容器——迁移失败即中止，不会把线上站点搞挂。
 # 说明：本项目迁移均为追加式（建表/加列/加索引），可安全地在旧代码运行期间执行。
-if [ "$PULL_ONLY" = "1" ]; then
-  # 复用已拉取的 api 镜像执行迁移（镜像内已包含 migrate.mjs 与迁移脚本），
-  # 避免为了跑一次迁移再单独构建 migrate 镜像。
-  log "应用数据库迁移（复用 api 镜像）"
-  docker compose -f compose.yml run --rm -e MIGRATION_APPROVED=true \
-    --entrypoint node api scripts/db/migrate.mjs up
-else
-  log "应用数据库迁移"
-  docker compose -f compose.yml --profile init run --rm migrate
-fi
+# 迁移统一复用 api 镜像执行（镜像内已含 migrate.mjs 与迁移脚本）。
+# 不再单独构建 migrate 镜像 —— 那会多一次全量 pnpm install，是构建慢的主因之一。
+log "应用数据库迁移（复用 api 镜像）"
+docker compose -f compose.yml run --rm -e MIGRATION_APPROVED=true \
+  --entrypoint node api scripts/db/migrate.mjs up
 
 # ---------- 6. 重建并启动容器（证书/数据卷在宿主机，不受影响）----------
 log "重建并启动服务"
