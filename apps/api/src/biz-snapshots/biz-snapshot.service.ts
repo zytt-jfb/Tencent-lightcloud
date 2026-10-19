@@ -779,11 +779,13 @@ export class BizSnapshotService implements OnModuleInit {
     }
 
     const snapId = registry!.currentSnapshotId!;
-    const [metrics, allContractSnaps, alerts, periodOverruns] = await Promise.all([
+    const [metrics, allContractSnaps, alerts, periodOverruns, ledgerRows] = await Promise.all([
       this.metricRepo.findBy({ snapshotId: snapId }),
       this.contractSnapRepo.findBy({ snapshotId: snapId }),
       this.alertRepo.findBy({ snapshotId: snapId }),
       this.overrunPeriodRepo.find({ where: { snapshotId: snapId } }),
+      // 合同台账带签订/到期日期，用于按年度判断合同是否有效
+      this.ledgerRepo.findBy({ snapshotId: snapId }),
     ]);
 
     // 省份/地市组合筛选（在 auth.dataScope 之上进一步取交集）
@@ -796,6 +798,27 @@ export class BizSnapshotService implements OnModuleInit {
     const scopedMetrics = metrics.filter((m) => scopeMatch(scope, m.provinceId, m.cityId) && metricVisible(m.provinceId, m.cityId));
     const scopedContractSnaps = allContractSnaps.filter((c) => scopeMatch(scope, c.provinceId, c.cityId) && metricVisible(c.provinceId, c.cityId));
     const contractScopeByContract = new Map(allContractSnaps.map((c) => [c.contractId, c]));
+
+    // 年度口径：合同有效期与所选年度有交集才计入（合同数与合同额同步）。
+    // isExpiredAtAsOf 表示"快照基准日是否已到期"，跨年度筛选必须按年度重判：
+    // 否则筛选 2020 年时，2023 年到期的合同会因"在快照日已到期"被错误排除出金额。
+    let contractSnapsForInventory = scopedContractSnaps;
+    if (q.year && /^\d{4}$/.test(q.year)) {
+      const yearStart = `${q.year}-01-01`;
+      const yearEnd = `${q.year}-12-31`;
+      const periodByContract = new Map(ledgerRows.map((l) => [l.contractId, l]));
+      contractSnapsForInventory = scopedContractSnaps
+        .filter((s) => {
+          const l = periodByContract.get(s.contractId);
+          if (!l) return true; // 台账缺失时保守保留，避免静默漏算
+          const signed = l.signedDate ? String(l.signedDate) : null;
+          const end = l.endDate ? String(l.endDate) : null;
+          if (signed && signed > yearEnd) return false; // 该年度尚未签订
+          if (end && end < yearStart) return false; // 该年度之前已到期
+          return true;
+        })
+        .map((s) => ({ ...s, isExpiredAtAsOf: 0 }));
+    }
 
     const cities = await this.cityRepo.find();
     const provinces = await this.provinceRepo.find();
@@ -830,9 +853,9 @@ export class BizSnapshotService implements OnModuleInit {
     });
 
     const selected = selectMetrics(scopedMetrics, q);
-    const overview = buildOverview(selected, scopedContractSnaps, allContractSnaps);
+    const overview = buildOverview(selected, contractSnapsForInventory, allContractSnaps);
     const trend = buildTrend(scopedMetrics, q);
-    const byCity = buildByCity(scopedMetrics, scopedContractSnaps, allContractSnaps, q, cityName, cityProvince, cityUnitType, provinceName);
+    const byCity = buildByCity(scopedMetrics, contractSnapsForInventory, allContractSnaps, q, cityName, cityProvince, cityUnitType, provinceName);
 
     return {
       overview,

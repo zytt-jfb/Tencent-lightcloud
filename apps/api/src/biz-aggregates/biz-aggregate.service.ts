@@ -451,8 +451,16 @@ export class BizAggregateService {
   }
 
   /** 合同库存指标（自行加载合同与分配；供 overview / byCity 等单次调用方使用） */
-  private async contractInventory(auth: BizAuthContext, cityId?: string, provinceId?: string): Promise<{ ids: Set<string>; amountFen: number }> {
-    const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() }, select: { id: true, provinceId: true, taxInclusiveAmountFen: true } });
+  private async contractInventory(auth: BizAuthContext, cityId?: string, provinceId?: string, year?: string): Promise<{ ids: Set<string>; amountFen: number }> {
+    const qb = this.contractRepo.createQueryBuilder('c')
+      .select(['c.id', 'c.provinceId', 'c.taxInclusiveAmountFen'])
+      .where('c.deletedAt IS NULL');
+    if (year && /^\d{4}$/.test(year)) {
+      // 年度口径：合同有效期与所选年度有交集（签订不晚于该年末，到期不早于该年初；未填到期日视为长期有效）
+      qb.andWhere('c.signedDate <= :inventoryYearEnd', { inventoryYearEnd: `${year}-12-31` })
+        .andWhere('(c.endDate IS NULL OR c.endDate >= :inventoryYearStart)', { inventoryYearStart: `${year}-01-01` });
+    }
+    const contracts = await qb.getMany();
     const allocs = await this.allocRepo.find({ where: { status: 'active' } });
     return this.computeContractInventory(auth, contracts, allocs, cityId, provinceId);
   }
@@ -471,7 +479,8 @@ export class BizAggregateService {
     const rows = await qb.getMany();
     const total = (field: string) => rows.reduce((s, r) => s + Number(r[field as keyof BizMonthlyAggregateEntity] ?? 0), 0);
     // 合同库存指标从合同+分配表出发（含零进度合同：已建立分配但无订单/完工），经营金额仍来自汇总表
-    const inventory = await this.contractInventory(auth, cityId, provinceId);
+    // 传 year：合同数/合同额按"合同有效期与所选年度有交集"统计
+    const inventory = await this.contractInventory(auth, cityId, provinceId, year);
     return {
       orderCompletionFen: total('orderCompletionFen'),
       offlineCompletionFen: total('offlineCompletionFen'),
@@ -714,15 +723,18 @@ export class BizAggregateService {
   }
 
   /**
-   * 可用年度（统一口径：来自有效订单的业务月份，而非合同日期，也不强制当前年度）。
+   * 可用年度 = 订单业务月份年份 ∪ 合同有效期覆盖的年份。
    * 口径：
-   *  - 数据源：biz_order_rows.business_month；
-   *  - 仅含 validation_status='valid' 且 is_void=false 的订单；
-   *  - 按当前用户数据权限过滤（city/province）；
-   *  - 返回去重 YYYY，倒序；
-   *  - 无有效订单时返回空数组（前端显示无数据状态，不默认 2026）。
+   *  - 订单：biz_order_rows.business_month，仅 validation_status='valid' 且非 void/非历史；
+   *  - 合同：按签订日期 ~ 到期日期展开为**连续年份**（如 2020 签订、2023 到期 → 2020/2021/2022/2023 都可选），
+   *    这样年度筛选与"合同在哪些年份有效"一致，不会出现"合同明明覆盖该年却选不到该年"；
+   *  - 均按当前用户数据权限过滤（city/province）；
+   *  - 返回去重 YYYY，倒序；无任何数据时返回空数组（前端显示无数据状态）。
    */
   async availableYears(auth: BizAuthContext): Promise<string[]> {
+    const years = new Set<string>();
+
+    // 1) 订单业务月份年份
     const qb = this.orderRowRepo.createQueryBuilder('o')
       .select('DISTINCT SUBSTRING(o.businessMonth, 1, 4)', 'year')
       .where('o.isVoid = 0').andWhere('o.isCurrent = 1')
@@ -735,8 +747,31 @@ export class BizAggregateService {
       qb.andWhere('o.cityId IN (SELECT id FROM biz_cities WHERE province_id IN (:...pids))', { pids: scope.provinceIds });
     }
     const rows = await qb.getRawMany<{ year: string }>();
-    const years = rows.map((r) => String(r.year)).filter((y) => /^\d{4}$/.test(y));
-    return [...new Set(years)].sort((a, b) => b.localeCompare(a));
+    for (const r of rows) {
+      const y = String(r.year);
+      if (/^\d{4}$/.test(y)) years.add(y);
+    }
+
+    // 2) 合同有效期覆盖的年份（展开区间；合同量级小，直接内存过滤权限）
+    const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() } });
+    const allocs = await this.allocRepo.find({ where: { status: 'active' } });
+    const citiesByContract = new Map<string, Set<string>>();
+    for (const a of allocs) {
+      if (!citiesByContract.has(a.contractId)) citiesByContract.set(a.contractId, new Set());
+      citiesByContract.get(a.contractId)!.add(a.cityId);
+    }
+    for (const c of contracts) {
+      if (!this.isContractVisible(auth, c, undefined, citiesByContract)) continue;
+      const signedYear = c.signedDate ? Number(String(c.signedDate).slice(0, 4)) : NaN;
+      const endYear = c.endDate ? Number(String(c.endDate).slice(0, 4)) : NaN;
+      const candidates = [signedYear, endYear].filter((n) => Number.isFinite(n) && n >= 2000 && n <= 2100);
+      if (!candidates.length) continue;
+      const from = Math.min(...candidates);
+      const to = Math.max(...candidates);
+      for (let y = from; y <= to; y += 1) years.add(String(y));
+    }
+
+    return [...years].sort((a, b) => b.localeCompare(a));
   }
 
   /** 合同维度累计（含成本/净利），供合同详情聚合 */
