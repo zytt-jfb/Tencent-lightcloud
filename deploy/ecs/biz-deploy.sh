@@ -20,6 +20,18 @@ LOCK="/var/run/biz-deploy.lock"
 
 log() { echo "[$(date +'%F %T')] $*" | tee -a "$LOG"; }
 
+# 用法：
+#   bash biz-deploy.sh               在本机构建镜像后部署（默认）
+#   bash biz-deploy.sh --pull-only   镜像已由 CI 构建并推送，本机只拉取
+#                                    需同时提供 API_IMAGE / WEB_IMAGE 两个环境变量
+PULL_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --pull-only) PULL_ONLY=1 ;;
+    *) log "【中止】未知参数: $arg（仅支持 --pull-only）"; exit 1 ;;
+  esac
+done
+
 # 并发锁：防止重叠执行导致竞态
 exec 9>"$LOCK"
 flock -n 9 || { echo "已有更新在运行，退出"; exit 1; }
@@ -57,11 +69,19 @@ if [ ! -f .env ]; then
   fi
 fi
 
-# ---------- 4. 构建镜像（含 migrate）----------
-# 源码有改动时必须重新 build，否则固定镜像名不会自动更新。
-# migrate 服务定义在 compose 的 init profile 下，需显式带上 profile 才会一并构建。
-log "构建镜像"
-docker compose -f compose.yml --profile init build
+# ---------- 4. 获取镜像：CI 模式拉取，否则本机构建 ----------
+if [ "$PULL_ONLY" = "1" ]; then
+  if [ -z "${API_IMAGE:-}" ] || [ -z "${WEB_IMAGE:-}" ]; then
+    log "【中止】--pull-only 需要同时提供 API_IMAGE 与 WEB_IMAGE（镜像完整地址）"
+    exit 1
+  fi
+  log "拉取镜像（跳过本机构建）：api=$API_IMAGE"
+  docker compose -f compose.yml pull api frontend \
+    || { log "【中止】镜像拉取失败，请检查仓库地址与登录状态"; exit 1; }
+else
+  log "构建镜像"
+  docker compose -f compose.yml --profile init build
+fi
 
 # ---------- 4.5 迁移前备份（保留最近 3 份）----------
 # 迁移可能变更表结构/索引，先留回滚点；备份失败即中止，不执行迁移、也不重建容器。
@@ -75,11 +95,18 @@ ls -1t "${DATA_ROOT}/backups/mysql"/*.sql.gz 2>/dev/null | tail -n +4 | xargs -r
 log "备份完成（保留最近 3 份）"
 
 # ---------- 5. 应用数据库迁移（新增表/字段/索引）----------
-# migrate 服务内置 MIGRATION_APPROVED=true，且 depends_on mysql healthy；
 # 此时旧容器仍在运行，迁移成功后才重建容器——迁移失败即中止，不会把线上站点搞挂。
 # 说明：本项目迁移均为追加式（建表/加列/加索引），可安全地在旧代码运行期间执行。
-log "应用数据库迁移"
-docker compose -f compose.yml --profile init run --rm migrate
+if [ "$PULL_ONLY" = "1" ]; then
+  # 复用已拉取的 api 镜像执行迁移（镜像内已包含 migrate.mjs 与迁移脚本），
+  # 避免为了跑一次迁移再单独构建 migrate 镜像。
+  log "应用数据库迁移（复用 api 镜像）"
+  docker compose -f compose.yml run --rm -e MIGRATION_APPROVED=true \
+    --entrypoint node api scripts/db/migrate.mjs up
+else
+  log "应用数据库迁移"
+  docker compose -f compose.yml --profile init run --rm migrate
+fi
 
 # ---------- 6. 重建并启动容器（证书/数据卷在宿主机，不受影响）----------
 log "重建并启动服务"

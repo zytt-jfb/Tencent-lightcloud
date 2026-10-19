@@ -60,7 +60,8 @@ services:
       - biz_db
 
   api:
-    image: biz-reporting-api:migration-20261015
+    # 默认沿用本机构建出的镜像名；CI 构建模式下由 API_IMAGE 注入仓库地址
+    image: ${API_IMAGE:-biz-reporting-api:migration-20261015}
     build:
       context: ../..
       dockerfile: Dockerfile
@@ -117,7 +118,8 @@ services:
     cpus: 0.8
 
   frontend:
-    image: biz-reporting-frontend
+    # 默认沿用本机构建出的镜像名；CI 构建模式下由 WEB_IMAGE 注入仓库地址
+    image: ${WEB_IMAGE:-biz-reporting-frontend}
     build:
       context: ../..
       dockerfile: deploy/ecs/frontend.Dockerfile

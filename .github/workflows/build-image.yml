@@ -1,0 +1,77 @@
+name: build-image
+
+# 在 GitHub 侧构建镜像并推送到私有镜像仓库，服务器只做 pull + 重启。
+# 目的：把「编译」从 2C/2G 的生产机搬走——那边单次构建 9~27 分钟，全程卡在 I/O。
+#
+# 需要的仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   REGISTRY_HOST        镜像仓库域名，例如 ccr.ccs.tencentyun.com
+#   REGISTRY_NAMESPACE   命名空间，例如 zy-prod
+#   REGISTRY_USERNAME    仓库用户名
+#   REGISTRY_PASSWORD    仓库密码/令牌
+#
+# 推送的镜像：
+#   <REGISTRY_HOST>/<NAMESPACE>/biz-reporting-api:<commit-sha>
+#   <REGISTRY_HOST>/<NAMESPACE>/biz-reporting-frontend:<commit-sha>
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 计算镜像 tag
+        id: meta
+        run: echo "tag=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录镜像仓库
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" \
+            | docker login "${{ secrets.REGISTRY_HOST }}" \
+                -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: 构建并推送 API 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_NAMESPACE }}/biz-reporting-api:${{ steps.meta.outputs.tag }}
+            ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_NAMESPACE }}/biz-reporting-api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: 构建并推送前端镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/ecs/frontend.Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_NAMESPACE }}/biz-reporting-frontend:${{ steps.meta.outputs.tag }}
+            ${{ secrets.REGISTRY_HOST }}/${{ secrets.REGISTRY_NAMESPACE }}/biz-reporting-frontend:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: 输出部署命令
+        run: |
+          # secrets 的值会被 GitHub 自动打码，直接引用会输出一排 ***，因此这里用占位符
+          echo "### 构建完成，镜像 tag: \`${{ steps.meta.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo '服务器执行（把 <仓库> / <命名空间> 换成实际值）：' >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "cd /home/ubuntu/zy/zy_data && sudo git pull --ff-only" >> "$GITHUB_STEP_SUMMARY"
+          echo "sudo API_IMAGE=<仓库>/<命名空间>/biz-reporting-api:${{ steps.meta.outputs.tag }} \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "     WEB_IMAGE=<仓库>/<命名空间>/biz-reporting-frontend:${{ steps.meta.outputs.tag }} \\" >> "$GITHUB_STEP_SUMMARY"
+          echo "     bash deploy/ecs/biz-deploy.sh --pull-only" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
