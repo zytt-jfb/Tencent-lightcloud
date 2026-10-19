@@ -1,7 +1,11 @@
 # Business reporting API - multi-stage Dockerfile (ECS / any Docker host)
 FROM node:20 AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+# apt 索引与包缓存跨构建复用，避免每次重新下载 python3/make/g++
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -14,7 +18,11 @@ COPY apps/api/package.json ./apps/api/
 
 RUN npm install -g pnpm@9
 RUN pnpm config set script-shell /bin/sh
-RUN pnpm install --frozen-lockfile --prefer-offline
+
+# pnpm store 挂载为构建缓存：依赖包跨构建复用，避免每次都从 registry 重新拉取。
+# 这台构建机（2C/2G、swap 高的云主机）此前单次构建要 9~27 分钟，主要耗在这里。
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --prefer-offline
 
 COPY packages/shared-types ./packages/shared-types
 COPY packages/shared-constants ./packages/shared-constants
@@ -30,9 +38,10 @@ RUN find packages apps/api -type f \( \
       -name '*.d.ts.map' \
     \) -delete && echo "CLEANUP: removed local build artifacts"
 
-RUN pnpm --filter @biz-reporting/shared-types build
-RUN pnpm --filter @biz-reporting/shared-constants build
-RUN pnpm --filter @biz-reporting/api build
+# 合并为单个 RUN：减少镜像层数与层间 I/O，总耗时低于三次独立 RUN
+RUN pnpm --filter @biz-reporting/shared-types build \
+ && pnpm --filter @biz-reporting/shared-constants build \
+ && pnpm --filter @biz-reporting/api build
 RUN pnpm deploy --filter=@biz-reporting/api /app/deploy
 
 # 将 Ledger 迁移工具与迁移脚本打进镜像，使容器可在启动时执行增量迁移（022-025）。
