@@ -35,8 +35,14 @@ jobs:
       - name: 迁移文件一致性
         run: pnpm migration-files:check
 
-      - name: 类型检查
-        run: pnpm typecheck
+      - name: 类型检查（共享包 + 后端）
+        run: |
+          pnpm --filter @biz-reporting/shared-types build
+          pnpm --filter @biz-reporting/shared-constants typecheck
+          pnpm --filter api typecheck
+
+      - name: 类型检查（前端）
+        run: pnpm --filter admin-web typecheck
 
       - name: 构建 shared-types
         run: pnpm --filter @biz-reporting/shared-types build
