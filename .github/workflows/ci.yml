@@ -30,6 +30,22 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      # 与本地执行完全相同的入口，避免 CI 与本地两套逻辑
-      - name: 校验（迁移一致性 + 类型 + 构建）
-        run: bash scripts/ci/verify.sh
+      # 拆成独立 step：失败时能一眼看出是迁移校验、类型检查还是打包出的问题。
+      # 与 scripts/ci/verify.sh 执行同一批命令，保持本地与 CI 行为一致。
+      - name: 迁移文件一致性
+        run: pnpm migration-files:check
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 构建 shared-types
+        run: pnpm --filter @biz-reporting/shared-types build
+
+      - name: 构建 shared-constants
+        run: pnpm --filter @biz-reporting/shared-constants build
+
+      - name: 构建 API
+        run: pnpm --filter api build
+
+      - name: 构建前端
+        run: pnpm --filter admin-web build
