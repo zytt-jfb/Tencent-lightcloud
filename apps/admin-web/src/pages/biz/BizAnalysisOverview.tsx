@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Descriptions, Drawer, Progress, Row, Select, Space, Spin, Statistic, Table, Tag, Typography, message } from 'antd';
 import {
+  bizAnalysisOverviewContracts,
   bizContractDetail,
   bizSnapshotDashboard,
   CONTRACT_STATUS_COLOR,
@@ -8,6 +9,7 @@ import {
   effectiveContractStatus,
   type BizContractDetail,
   type BizDashboardResult,
+  type BizOverviewContractItem,
 } from '@/api/biz.api';
 import { useBizSnapshot } from '@/components/biz/BizSnapshotContext';
 import { BizAnalysisFilter, EMPTY_ANALYSIS_FILTER, type AnalysisFilterValue } from '@/components/biz/BizAnalysisFilter';
@@ -43,10 +45,35 @@ export default function BizAnalysisOverview() {
   const [detail, setDetail] = useState<BizContractDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  // 「当前合同数」点击查看的合同清单
+  const [contractOpen, setContractOpen] = useState(false);
+  const [contractLoading, setContractLoading] = useState(false);
+  const [contractRows, setContractRows] = useState<BizOverviewContractItem[]>([]);
+  const [contractAsOf, setContractAsOf] = useState<string | null>(null);
   /** 手动刷新 / 快照更新后重新拉取 */
   const [refreshTick, setRefreshTick] = useState(0);
   /** 请求序列号：仅接受最新一次请求结果，避免旧响应覆盖新响应 */
   const seqRef = useRef(0);
+
+  /** 打开「当前合同数」明细。请求参数与概览指标完全一致，保证条数与指标数字对得上。 */
+  const openContracts = async () => {
+    setContractOpen(true);
+    setContractLoading(true);
+    try {
+      const res = await bizAnalysisOverviewContracts({
+        year: filter.year || undefined,
+        provinceIds: filter.provinceIds.length ? filter.provinceIds : undefined,
+        cityIds: filter.cityIds.length ? filter.cityIds : undefined,
+      });
+      setContractRows(res.items ?? []);
+      setContractAsOf(res.asOf ?? null);
+    } catch {
+      setContractRows([]);
+      message.error('合同明细加载失败');
+    } finally {
+      setContractLoading(false);
+    }
+  };
 
   const filterKey = [
     filter.year,
@@ -139,7 +166,15 @@ export default function BizAnalysisOverview() {
   </Space></div>
     <BizAnalysisFilter value={filter} onChange={setFilter} />
     <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
-      <Col xs={12} lg={4}><Card size="small"><Statistic title="当前合同数" value={Number(overview?.contractCount) || 0} /></Card></Col>
+      <Col xs={12} lg={4}>
+        <Card size="small" hoverable onClick={() => void openContracts()}>
+          <Statistic
+            title="当前合同数"
+            value={Number(overview?.contractCount) || 0}
+            valueStyle={{ color: '#1677ff', textDecoration: 'underline', textUnderlineOffset: 4 }}
+          />
+        </Card>
+      </Col>
       <Col xs={12} lg={4}><Card size="small"><Statistic title="当前合同额（元）" value={fenToYuan(Number(overview?.totalContractAmountFen) || 0)} /></Card></Col>
       <Col xs={12} lg={4}><Card size="small"><Statistic title="订单完工（元）" value={fenToYuan(Number(overview?.orderCompletionFen) || 0)} /></Card></Col>
       <Col xs={12} lg={4}><Card size="small"><Statistic title="线下完工（元）" value={fenToYuan(Number(overview?.offlineCompletionFen) || 0)} /></Card></Col>
@@ -180,6 +215,58 @@ export default function BizAnalysisOverview() {
         <Card title="管理费率" size="small" style={{ marginTop: 16 }}>
           <Table size="small" rowKey={(row) => `${row.cityId}-${row.effectiveMonth}`} dataSource={detail.feeRates} pagination={{ pageSize: 8 }} columns={[{ title: '地市', dataIndex: 'cityId', key: 'cityId', render: (cityId: string) => detail.allocations.find((allocation) => allocation.cityId === cityId)?.cityName ?? cityId }, { title: '生效月份', dataIndex: 'effectiveMonth', key: 'effectiveMonth' }, { title: '管理费率', dataIndex: 'rateBp', key: 'rateBp', render: (value: number) => `${(value / 100).toFixed(2)}%` }, { title: '说明', dataIndex: 'changeReason', key: 'changeReason', render: (value: string | null) => value ?? '-' }]} />
         </Card></>}
+    </Drawer>
+    <Drawer
+      title={`当前合同明细${filter.year ? `（${filter.year}年度）` : ''}`}
+      placement="right"
+      width={920}
+      open={contractOpen}
+      onClose={() => setContractOpen(false)}
+    >
+      <Space size="large" style={{ marginBottom: 12 }} wrap>
+        <span>共 <strong>{contractRows.length}</strong> 个合同</span>
+        {contractAsOf && <span style={{ color: '#8c8c8c' }}>快照基准日 {contractAsOf}</span>}
+        <span style={{ color: '#8c8c8c' }}>口径：合同有效期与所选年度有交集</span>
+      </Space>
+      <Table<BizOverviewContractItem>
+        size="small"
+        rowKey="contractId"
+        loading={contractLoading}
+        dataSource={contractRows}
+        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (total) => `共 ${total} 条` }}
+        columns={[
+          {
+            title: '合同编号',
+            dataIndex: 'contractNo',
+            width: 175,
+            ellipsis: true,
+            render: (value: string | null, row) => (
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => void openContractDetail(row.contractId)}>
+                {value ?? '-'}
+              </Button>
+            ),
+          },
+          { title: '合同名称', dataIndex: 'contractName', ellipsis: true, render: (value: string | null) => value ?? '-' },
+          { title: '省份', dataIndex: 'provinceName', width: 90 },
+          { title: '含税合同额（元）', dataIndex: 'taxInclusiveAmountFen', width: 150, render: (value: number) => fenToYuan(value) },
+          {
+            title: '状态',
+            dataIndex: 'effectiveStatus',
+            width: 90,
+            render: (value: string | null) => (
+              <Tag color={CONTRACT_STATUS_COLOR[value ?? ''] ?? 'default'}>{CONTRACT_STATUS_TEXT[value ?? ''] ?? value ?? '-'}</Tag>
+            ),
+          },
+          { title: '签订', dataIndex: 'signedDate', width: 100, render: (value: string | null) => value ?? '-' },
+          { title: '到期', dataIndex: 'endDate', width: 100, render: (value: string | null) => value ?? '-' },
+          {
+            title: '完工进度',
+            dataIndex: 'completionProgressPct',
+            width: 95,
+            render: (value: number | null) => (value == null ? '-' : `${Number(value).toFixed(2)}%`),
+          },
+        ]}
+      />
     </Drawer>
   </div>;
 }

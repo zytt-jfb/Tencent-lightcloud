@@ -943,6 +943,87 @@ export class BizSnapshotService implements OnModuleInit {
   // ================= 经营单位详情（快照口径，与概览/单位对比同一 ready 快照） =================
 
   /** 经营单位详情聚合：返回与经营分析概览/单位对比同一 ready 快照下的城市聚合（合同数/合同额/完工/成本/毛利/净利 + 合同明细及累计完工 + 超额汇总）。原始明细（订单/线下/成本）仍由实时接口提供。 */
+  /**
+   * 年度合同清单：供经营概览「当前合同数」点击查看明细。
+   * 口径与 dashboard 的 contractCount **完全一致**（同一快照、同一数据权限、同一省份/地市与年度过滤），
+   * 保证弹窗里返回的条数等于指标上的数字，不会出现"显示 23、点开 30 条"。
+   */
+  async contractListByYear(
+    auth: BizAuthContext,
+    q: { year?: string; provinceIds?: string[]; cityIds?: string[] },
+  ): Promise<{
+    asOf: string | null;
+    total: number;
+    items: Array<{
+      contractId: string;
+      contractNo: string | null;
+      contractName: string | null;
+      provinceName: string;
+      taxInclusiveAmountFen: number;
+      status: string | null;
+      effectiveStatus: string | null;
+      signedDate: string | null;
+      endDate: string | null;
+      completionProgressPct: number | null;
+    }>;
+  }> {
+    const registry = await this.getEffectiveRegistry();
+    if (!registry || registry.status !== 'ready' || !registry.currentSnapshotId) {
+      return { asOf: null, total: 0, items: [] };
+    }
+    const snapId = registry.currentSnapshotId;
+    const [ledger, contractSnaps, provinces] = await Promise.all([
+      this.ledgerRepo.findBy({ snapshotId: snapId }),
+      this.contractSnapRepo.findBy({ snapshotId: snapId }),
+      this.provinceRepo.find({ select: { id: true, name: true } }),
+    ]);
+
+    const scope = auth.dataScope;
+    const provinceFilter = q.provinceIds && q.provinceIds.length ? new Set(q.provinceIds) : null;
+    const cityFilter = q.cityIds && q.cityIds.length ? new Set(q.cityIds) : null;
+
+    // 权限 + 省份/地市筛选后可见的合同（与 dashboard 的 metricVisible / scopeMatch 判定一致）
+    const visibleContractIds = new Set(
+      contractSnaps
+        .filter((s) => scopeMatch(scope, s.provinceId, s.cityId))
+        .filter((s) => (!provinceFilter || (s.provinceId != null && provinceFilter.has(s.provinceId))) && (!cityFilter || cityFilter.has(s.cityId)))
+        .map((s) => s.contractId),
+    );
+
+    let rows = ledger.filter((l) => visibleContractIds.has(l.contractId));
+    if (q.year && /^\d{4}$/.test(q.year)) {
+      // 与 dashboard 相同的年度口径：合同有效期与所选年度有交集
+      const yearStart = `${q.year}-01-01`;
+      const yearEnd = `${q.year}-12-31`;
+      rows = rows.filter((l) => {
+        const signed = l.signedDate ? String(l.signedDate) : null;
+        const end = l.endDate ? String(l.endDate) : null;
+        if (signed && signed > yearEnd) return false;
+        if (end && end < yearStart) return false;
+        return true;
+      });
+    }
+
+    const provinceName = new Map(provinces.map((p) => [String(p.id), String(p.name)]));
+    const asOf = registry.currentAsOf;
+    return {
+      asOf,
+      total: rows.length,
+      items: rows.map((l) => ({
+        contractId: l.contractId,
+        contractNo: l.contractNo ?? null,
+        contractName: l.contractName ?? null,
+        provinceName: l.provinceId ? (provinceName.get(String(l.provinceId)) ?? '-') : '-',
+        taxInclusiveAmountFen: Number(l.taxInclusiveAmountFen) || 0,
+        status: l.status ?? null,
+        effectiveStatus: computeEffectiveContractStatus(l.status, l.endDate, asOf) ?? null,
+        signedDate: l.signedDate ? String(l.signedDate) : null,
+        endDate: l.endDate ? String(l.endDate) : null,
+        completionProgressPct: l.completionProgressPct == null ? null : Number(l.completionProgressPct),
+      })),
+    };
+  }
+
   async snapshotCityDetail(
     auth: BizAuthContext,
     cityId: string,

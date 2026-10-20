@@ -115,6 +115,23 @@ export class BizAggregateController {
   }
 
   // ---- 统一 dashboard（一次返回 overview/trend/byCity/alerts + 快照元数据；快照未生成时回退实时聚合）----
+  /** 经营概览「当前合同数」点击查看明细。口径与 dashboard 的 contractCount 一致。 */
+  @Get('analysis/overview-contracts')
+  @BizPermissions(BizPermissionCode.OPERATION_ANALYSIS_READ)
+  async overviewContracts(
+    @BizAuthUser() auth: BizAuthContext,
+    @Query('year') year?: string,
+    @Query('provinceIds') provinceIds?: string,
+    @Query('cityIds') cityIds?: string,
+  ) {
+    const toArr = (v?: string) => (v ? String(v).split(',').filter(Boolean) : undefined);
+    return this.snapshots.contractListByYear(auth, {
+      year,
+      provinceIds: toArr(provinceIds),
+      cityIds: toArr(cityIds),
+    });
+  }
+
   @Get('analysis/dashboard')
   @BizPermissions(BizPermissionCode.OPERATION_ANALYSIS_READ)
   async dashboard(

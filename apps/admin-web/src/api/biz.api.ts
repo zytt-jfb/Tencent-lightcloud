@@ -1058,3 +1058,23 @@ export function bizModuleSnapshot(code: string): Promise<BizModuleSnapshotView> 
 export function bizModuleSnapshotRebuild(params?: { codes?: string[]; asOf?: string }): Promise<{ ok: boolean; asOf: string; items: BizModuleSnapshotStatus[] }> {
   return request.post('/biz/module-snapshots/rebuild', params ?? {}).then((r) => r.data);
 }
+
+// ================= 经营概览：当前合同数明细 =================
+
+export interface BizOverviewContractItem {
+  contractId: string;
+  contractNo: string | null;
+  contractName: string | null;
+  provinceName: string;
+  taxInclusiveAmountFen: number;
+  status: string | null;
+  effectiveStatus: string | null;
+  signedDate: string | null;
+  endDate: string | null;
+  completionProgressPct: number | null;
+}
+
+/** 经营概览「当前合同数」点击查看明细。口径与概览指标一致（同一快照 + 同一权限/年度过滤） */
+export function bizAnalysisOverviewContracts(params: { year?: string; provinceIds?: string[]; cityIds?: string[] }): Promise<{ asOf: string | null; total: number; items: BizOverviewContractItem[] }> {
+  return request.get('/biz/analysis/overview-contracts', { params }).then((r) => r.data);
+}
