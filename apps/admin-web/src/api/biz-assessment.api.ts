@@ -49,8 +49,6 @@ export interface AssessmentSummary {
   minScore: number;
   onlineCount: number;
   offlineCount: number;
-  importedCount: number;
-  entryCount: number;
   months: Array<{ month: string; count: number; avgScore: number }>;
   cities: Array<{ cityId: string | null; cityName: string; count: number; avgScore: number; minScore: number }>;
   suppliers: Array<{ supplierName: string; count: number; avgScore: number; minScore: number }>;

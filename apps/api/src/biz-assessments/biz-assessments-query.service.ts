@@ -60,8 +60,6 @@ export interface AssessmentSummary {
   minScore: number;
   onlineCount: number;
   offlineCount: number;
-  importedCount: number;
-  entryCount: number;
   months: Array<{ month: string; count: number; avgScore: number }>;
   cities: Array<{ cityId: string | null; cityName: string; count: number; avgScore: number; minScore: number }>;
   suppliers: Array<{ supplierName: string; count: number; avgScore: number; minScore: number }>;
@@ -107,7 +105,6 @@ interface SummaryScanRow {
   projectName: string;
   score: string | number;
   evalMethod: string;
-  source: string;
 }
 
 /** 数字归一：TypeORM 的 decimal 在 MySQL 驱动下返回字符串 */
@@ -244,7 +241,6 @@ export class BizAssessmentsQueryService {
       .addSelect('r.projectName', 'projectName')
       .addSelect('r.score', 'score')
       .addSelect('r.evalMethod', 'evalMethod')
-      .addSelect('r.source', 'source')
       .limit(200000)
       .getRawMany<SummaryScanRow>();
 
@@ -254,8 +250,6 @@ export class BizAssessmentsQueryService {
     let minScore = Number.POSITIVE_INFINITY;
     let onlineCount = 0;
     let offlineCount = 0;
-    let importedCount = 0;
-    let entryCount = 0;
 
     const supplierSet = new Set<string>();
     const projectSet = new Set<string>();
@@ -274,7 +268,6 @@ export class BizAssessmentsQueryService {
       if (score < minScore) minScore = score;
 
       if (row.evalMethod === 'online') onlineCount += 1; else offlineCount += 1;
-      if (row.source === 'import') importedCount += 1; else entryCount += 1;
 
       supplierSet.add(row.supplierName);
       projectSet.add(row.projectName);
@@ -345,8 +338,6 @@ export class BizAssessmentsQueryService {
       },
       onlineCount,
       offlineCount,
-      importedCount,
-      entryCount,
       months: [...monthMap.entries()]
         .map(([month, value]) => ({ month, count: value.count, avgScore: round(value.sum / value.count) }))
         .sort((a, b) => b.month.localeCompare(a.month)),
@@ -368,13 +359,18 @@ export class BizAssessmentsQueryService {
     cities: Array<{ id: string; name: string }>;
     projects: string[];
   }> {
+    // 与概览汇总同一套路子：只取索引内的窄列 raw 行，去重放在内存里做
     const qb = this.recordRepo.createQueryBuilder('r');
     await this.applyScope(qb, auth, 'r');
     const rows = await qb
-      .select(['r.id', 'r.evalMonth', 'r.supplierName', 'r.projectName', 'r.cityId', 'r.cityName'])
+      .select('r.evalMonth', 'evalMonth')
+      .addSelect('r.supplierName', 'supplierName')
+      .addSelect('r.projectName', 'projectName')
+      .addSelect('r.cityId', 'cityId')
+      .addSelect('r.cityName', 'cityName')
       .where(`r.status IN (:...effectiveStatuses)`, { effectiveStatuses: [...EFFECTIVE_ASSESSMENT_STATUSES] })
-      .take(20000)
-      .getMany();
+      .limit(200000)
+      .getRawMany<{ evalMonth: string; supplierName: string; projectName: string; cityId: string | null; cityName: string | null }>();
 
     const months = [...new Set(rows.map((row) => row.evalMonth))].sort().reverse();
     const suppliers = [...new Set(rows.map((row) => row.supplierName))].sort((a, b) => a.localeCompare(b, 'zh-CN'));

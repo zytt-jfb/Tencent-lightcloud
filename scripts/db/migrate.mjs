@@ -799,6 +799,14 @@ async function inspectState(version) {
     if (!await adapter.tableExists('biz_assessment_record')) return 'empty';
     return await adapter.indexExists('biz_assessment_record', 'idx_biz_assessment_cover') ? 'satisfied' : 'empty';
   }
+
+  if (version === '044_biz_assessment_cover_index_v2') {
+    // 判据：覆盖索引里含有 eval_method 列（043 的旧版索引没有）
+    if (!await adapter.tableExists('biz_assessment_record')) return 'empty';
+    return await adapter.scalar(
+      "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'biz_assessment_record' AND index_name = 'idx_biz_assessment_cover' AND column_name = 'eval_method'",
+    ).then((count) => Number(count) > 0 ? 'satisfied' : 'empty');
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 
