@@ -41,5 +41,6 @@
   "039_order_rows_covering_index": "ccb50aa4898a2594a935f0f90d39c645cdef6ff7503abd2663844dd9b1e83dd9",
   "040_biz_assessment": "40d72cc142cabb58fbf63f6ade5d3a06f55c6ea9876e3da4ad110cfeb26f03ef",
   "041_biz_liaoning_regions": "9a80a48e87a5709fe2f8513585b347f50089b6dc63d237edffd28c22550e2d4a",
-  "042_biz_liaoning_orphan_fix": "bebf0e45f34dcd4bbd2739f812c3d6875750375c3b8b3a304d34ede22a45e6fc"
+  "042_biz_liaoning_orphan_fix": "bebf0e45f34dcd4bbd2739f812c3d6875750375c3b8b3a304d34ede22a45e6fc",
+  "043_biz_assessment_cover_index": "5b95972d80d8de12b6f5bae1161703fc84c3385613e77f42d7d395756b9a400c"
 }

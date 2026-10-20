@@ -794,6 +794,11 @@ async function inspectState(version) {
     return await adapter.scalar('SELECT COUNT(*) FROM biz_cities c LEFT JOIN biz_provinces p ON p.id = c.province_id WHERE p.id IS NULL')
       .then((count) => count === 0 ? 'satisfied' : 'empty');
   }
+
+  if (version === '043_biz_assessment_cover_index') {
+    if (!await adapter.tableExists('biz_assessment_record')) return 'empty';
+    return await adapter.indexExists('biz_assessment_record', 'idx_biz_assessment_cover') ? 'satisfied' : 'empty';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 
