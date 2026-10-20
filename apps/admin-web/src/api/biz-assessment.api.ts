@@ -83,6 +83,7 @@ export interface AssessmentPreviewSample {
 export interface AssessmentPreview {
   filename: string;
   sheetName: string;
+  sheets: Array<{ name: string; dataRows: number; matchedFields: number }>;
   headerMap: Record<string, string>;
   totalRows: number;
   duplicateRows: number;
@@ -259,4 +260,105 @@ export async function assessmentEntryVoid(id: string, reason: string): Promise<A
 
 export async function assessmentEntryDelete(id: string): Promise<{ ok: true }> {
   return (await request.delete(`/biz/assessment/entries/${encodeURIComponent(id)}`)).data;
+}
+
+// ==================== 供应商成绩单 ====================
+
+export interface SupplierScorecardRow {
+  projectName: string;
+  provinceId: string | null;
+  provinceName: string;
+  monthScore: number;
+  monthCount: number;
+  totalScore: number;
+  totalCount: number;
+  avgScore: number;
+  avgRank: number | null;
+  totalRank: number | null;
+  monthRank: number | null;
+  monthRankDelta: number | null;
+  gapToLeaderAvg: number;
+  gapToLeaderTotal: number;
+  supplierCount: number;
+  singleSupplier: boolean;
+  hasMonthData: boolean;
+}
+
+export interface SupplierScorecard {
+  supplier: string;
+  requestedMonth: string | null;
+  month: string | null;
+  months: string[];
+  rows: SupplierScorecardRow[];
+  totals: { projectCount: number; monthScore: number; totalScore: number; avgScore: number; singleSupplierCount: number };
+  rankingBasis: { avg: string; total: string; scope: string };
+}
+
+export interface BreakdownRow {
+  cityName: string;
+  supplierName: string;
+  monthScore: number;
+  monthCount: number;
+  totalScore: number;
+  totalCount: number;
+  avgScore: number;
+  monthRank: number | null;
+  totalRank: number | null;
+}
+
+export interface BreakdownSupplierRow {
+  supplierName: string;
+  totalScore: number;
+  totalCount: number;
+  avgScore: number;
+  avgRank: number | null;
+  totalRank: number | null;
+  isFocus: boolean;
+}
+
+export interface BreakdownGroup extends BreakdownSupplierRow {
+  cities: Array<{ cityName: string; avgScore: number; totalScore: number; monthCount: number }>;
+  gapToLeaderAvg: number;
+  gapToLeaderTotal: number;
+  monthCount: number;
+}
+
+export interface TrendPoint {
+  month: string;
+  monthScore: number;
+  monthCount: number;
+  monthAvg: number;
+  avgRank: number | null;
+  totalRank: number | null;
+}
+
+export interface ProjectBreakdown {
+  projectName: string;
+  month: string | null;
+  focusSupplier: string;
+  block1: BreakdownRow[];
+  block2: BreakdownSupplierRow[];
+  block3: BreakdownGroup[];
+  trend: TrendPoint[];
+  supplierCount: number;
+}
+
+/** 供应商成绩单：selected supplier × 月份 → 每个采购项目的本月得分与两个排名 */
+export async function assessmentScorecard(params: {
+  supplier: string; month?: string; projects?: string[]; provinceIds?: string[];
+}): Promise<SupplierScorecard> {
+  const query: Record<string, unknown> = { supplier: params.supplier };
+  if (params.month) query.month = params.month;
+  if (params.projects?.length) query.projects = params.projects.join(',');
+  if (params.provinceIds?.length) query.provinceIds = params.provinceIds.join(',');
+  return (await request.get('/biz/assessment/scorecard', { params: query })).data;
+}
+
+/** 单合同排名解剖：块① 地市维度 / 块② 省维度 / 块③ 供应商分层 / 趋势 */
+export async function assessmentBreakdown(params: {
+  project: string; month?: string; supplier: string;
+}): Promise<ProjectBreakdown> {
+  const query: Record<string, unknown> = { project: params.project, supplier: params.supplier };
+  if (params.month) query.month = params.month;
+  return (await request.get('/biz/assessment/project-breakdown', { params: query })).data;
 }

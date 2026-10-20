@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import * as XLSX from 'xlsx';
 import { AssessmentBatchEntity } from './assessment-batch.entity';
 import { AssessmentRecordEntity } from './assessment-record.entity';
@@ -23,11 +23,11 @@ type FieldKey = 'seq' | 'projectName' | 'provinceName' | 'cityName' | 'supplierN
 /** 表头别名：按表头名匹配（列序可变），命中即用 */
 const COLUMN_ALIASES: Record<FieldKey, string[]> = {
   seq: ['序号', '序', '行号'],
-  projectName: ['采购项目名称', '项目名称', '采购项目'],
+  projectName: ['采购项目名称', '项目名称', '采购项目', '合同名称'],
   provinceName: ['省分', '省份', '省公司', '省份名称'],
   cityName: ['地市', '城市', '地市名称', '城市名称'],
-  supplierName: ['供应商', '供应商名称', '供应商公司'],
-  score: ['分数', '得分', '后评价分数', '后评估分数', '评价分数'],
+  supplierName: ['供应商', '供应商名称', '供应商公司', '公司', '单位名称'],
+  score: ['分数', '得分', '后评价分数', '后评估分数', '评价分数', '汇总得分'],
   evalMonth: ['后评价月份', '后评估月份', '后评价年月', '评价月份', '月份'],
   evalMethod: ['后评价方式', '后评估方式', '评价方式'],
 };
@@ -62,6 +62,8 @@ export interface AssessmentPreviewIssue {
 
 export interface AssessmentParseResult {
   sheetName: string;
+  /** 文件内所有工作表及其表头/行数画像，便于确认是否选对页 */
+  sheets: Array<{ name: string; dataRows: number; matchedFields: number }>;
   /** 实际命中的表头：业务字段 → 原表头文本 */
   headerMap: Partial<Record<FieldKey, string>>;
   totalRows: number;
@@ -161,42 +163,95 @@ export class BizAssessmentsImportService {
 
   // ==================== 解析 ====================
 
-  private readSheet(workbook: XLSX.WorkBook): { sheetName: string; header: unknown[]; rows: Array<{ rowNo: number; values: unknown[] }> } {
-    const sheetName = workbook.SheetNames[0];
-    const sheet = sheetName ? workbook.Sheets[sheetName] : undefined;
-    if (!sheet || !sheet['!ref']) throw new BadRequestException('文件为空或缺少工作表');
+  /** 单个工作表的读取结果（含表头匹配度，供多页文件自动选页） */
+  private readOneSheet(workbook: XLSX.WorkBook, sheetName: string): {
+    sheetName: string;
+    header: unknown[];
+    rows: Array<{ rowNo: number; values: unknown[] }>;
+    matchedFields: number;
+    dataRows: number;
+  } {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet || !sheet['!ref']) return { sheetName, header: [], rows: [], matchedFields: 0, dataRows: 0 };
     const range = XLSX.utils.decode_range(sheet['!ref']);
     const cellValue = (row: number, col: number): unknown => {
       const cell = sheet[XLSX.utils.encode_cell({ r: row, c: col })];
       return cell ? cell.v : '';
     };
-    // 表头不一定在第 1 行：在前 10 行里找第一个命中所必需列的作为表头行
-    let headerRow = range.s.r;
-    for (let row = range.s.r; row <= Math.min(range.s.r + 9, range.e.r); row += 1) {
+    const rowValues = (row: number): unknown[] => {
       const values: unknown[] = [];
       for (let col = range.s.c; col <= range.e.c; col += 1) values.push(cellValue(row, col));
+      return values;
+    };
+    const countMatched = (values: unknown[]): number => {
       const normalized = values.map(normalizeHeader);
-      const hits = REQUIRED_FIELDS.filter((field) => COLUMN_ALIASES[field].some((alias) => normalized.includes(normalizeHeader(alias)))).length;
-      if (hits >= 3) { headerRow = row; break; }
+      return REQUIRED_FIELDS.filter((field) => COLUMN_ALIASES[field].some((alias) => normalized.includes(normalizeHeader(alias)))).length;
+    };
+
+    // 表头不一定在第 1 行：前 10 行里取命中最多的那一行作为表头
+    let headerRow = range.s.r;
+    let bestMatched = -1;
+    for (let row = range.s.r; row <= Math.min(range.s.r + 9, range.e.r); row += 1) {
+      const matched = countMatched(rowValues(row));
+      if (matched > bestMatched) { bestMatched = matched; headerRow = row; }
+      if (matched === REQUIRED_FIELDS.length) break;
     }
-    const header: unknown[] = [];
-    for (let col = range.s.c; col <= range.e.c; col += 1) header.push(cellValue(headerRow, col));
+
+    const header = rowValues(headerRow);
     const rows: Array<{ rowNo: number; values: unknown[] }> = [];
     for (let row = headerRow + 1; row <= range.e.r; row += 1) {
-      const values: unknown[] = [];
-      let hasValue = false;
-      for (let col = range.s.c; col <= range.e.c; col += 1) {
-        const value = cellValue(row, col);
-        if (value !== '' && value !== null && value !== undefined) hasValue = true;
-        values.push(value);
-      }
+      const values = rowValues(row);
+      const hasValue = values.some((value) => value !== '' && value !== null && value !== undefined);
       if (hasValue) rows.push({ rowNo: row + 1, values });
     }
-    return { sheetName, header, rows };
+    return { sheetName, header, rows, matchedFields: Math.max(0, bestMatched), dataRows: rows.length };
+  }
+
+  /**
+   * 选页：多工作表文件（如集齐 17 个 sheet 的汇报版）里，第一个 sheet 往往是汇总页而不是明细。
+   * 规则：先看表头命中的必需列数量，命中多者优先；同分取数据行多的。
+   */
+  private readSheet(workbook: XLSX.WorkBook, preferredSheet?: string): {
+    sheetName: string;
+    header: unknown[];
+    rows: Array<{ rowNo: number; values: unknown[] }>;
+    candidates: Array<{ name: string; dataRows: number; matchedFields: number }>;
+  } {
+    const names = workbook.SheetNames.slice(0, 30);
+    if (names.length === 0) throw new BadRequestException('文件缺少工作表');
+
+    if (preferredSheet) {
+      const hit = names.find((name) => name === preferredSheet);
+      if (!hit) throw new BadRequestException(`找不到工作表「${preferredSheet}」`);
+      const result = this.readOneSheet(workbook, hit);
+      if (result.matchedFields < REQUIRED_FIELDS.length - 1) {
+        throw new BadRequestException(`工作表「${hit}」缺少必需列，无法识别为后评价明细`);
+      }
+      return {
+        ...result,
+        candidates: names.map((name) => {
+          const item = this.readOneSheet(workbook, name);
+          return { name, dataRows: item.dataRows, matchedFields: item.matchedFields };
+        }),
+      };
+    }
+
+    const scored = names.map((name) => this.readOneSheet(workbook, name));
+    const candidates = scored.map((item) => ({ name: item.sheetName, dataRows: item.dataRows, matchedFields: item.matchedFields }));
+    const best = [...scored].sort((a, b) => b.matchedFields - a.matchedFields || b.dataRows - a.dataRows)[0];
+    if (!best || best.matchedFields < REQUIRED_FIELDS.length - 1) {
+      const hint = candidates
+        .filter((item) => item.dataRows > 0)
+        .slice(0, 5)
+        .map((item) => `${item.name}(${item.dataRows}行)`)
+        .join('、');
+      throw new BadRequestException(`没有找到包含后评价明细列的工作表${hint ? `，已尝试：${hint}` : ''}`);
+    }
+    return { sheetName: best.sheetName, header: best.header, rows: best.rows, candidates };
   }
 
   /** 解析文件（不落库）：预览与导入共用 */
-  async parse(file: { buffer: Buffer; originalname?: string; size?: number }): Promise<AssessmentParseResult> {
+  async parse(file: { buffer: Buffer; originalname?: string; size?: number }, preferredSheet?: string): Promise<AssessmentParseResult> {
     if (!file?.buffer?.length) throw new BadRequestException('未接收到文件内容');
     let workbook: XLSX.WorkBook;
     try {
@@ -204,7 +259,7 @@ export class BizAssessmentsImportService {
     } catch {
       throw new BadRequestException('文件无法解析，请确认是 .xlsx / .xls 格式');
     }
-    const { sheetName, header, rows } = this.readSheet(workbook);
+    const { sheetName, header, rows, candidates } = this.readSheet(workbook, preferredSheet);
 
     // 表头 → 列下标
     const normalizedHeader = header.map(normalizeHeader);
@@ -252,9 +307,10 @@ export class BizAssessmentsImportService {
       if (!projectName) { failedRows += 1; issues.push({ rowNo, message: '采购项目名称为空' }); continue; }
       if (!supplierName) { failedRows += 1; issues.push({ rowNo, message: '供应商为空' }); continue; }
       if (!evalMonth) { failedRows += 1; issues.push({ rowNo, message: `后评价月份无法识别：${String(pick(values, 'evalMonth') ?? '')}` }); continue; }
-      if (score === null || score < 0 || score > 100) {
+      // 上限放到 150：真实数据存在加分项（如 102.34），卡 100 会把这类行丢掉，总分就偏小
+      if (score === null || score < 0 || score > 150) {
         failedRows += 1;
-        issues.push({ rowNo, message: `分数不合法（应为 0-100）：${String(pick(values, 'score') ?? '')}` });
+        issues.push({ rowNo, message: `分数不合法（应为 0-150）：${String(pick(values, 'score') ?? '')}` });
         continue;
       }
 
@@ -273,7 +329,13 @@ export class BizAssessmentsImportService {
         }
       }
 
-      const dedupKey = buildDedupKey(['import', evalMonth, projectName, city?.id ?? cityName, supplierName]);
+      // 行级唯一键：同一「项目+地市+供应商+月份」可以有多条明细（原表靠 SUMIFS 加总），
+      // 因此业务键必须带上分数与方式，否则会把 5.5 行/组合压成 1 行，总分和排名全错。
+      const rowHash = createHash('sha1')
+        .update([evalMonth, normalizeKey(projectName), normalizeKey(city?.id ?? cityName), normalizeKey(supplierName), score.toFixed(2), evalMethod].join('|'))
+        .digest('hex')
+        .slice(0, 24);
+      const dedupKey = `import|${evalMonth}|${rowHash}`;
       if (seenKeys.has(dedupKey)) { duplicateRows += 1; continue; }
       seenKeys.add(dedupKey);
 
@@ -299,6 +361,7 @@ export class BizAssessmentsImportService {
 
     return {
       sheetName,
+      sheets: candidates,
       headerMap,
       totalRows: rows.length,
       rows: parsedRows,
@@ -316,20 +379,25 @@ export class BizAssessmentsImportService {
   }
 
   /** 预览：不落库，返回统计 + 前 10 行样例 */
-  async preview(file: { buffer: Buffer; originalname?: string; size?: number }): Promise<AssessmentPreview> {
-    const parsed = await this.parse(file);
+  async preview(file: { buffer: Buffer; originalname?: string; size?: number }, sheetName?: string): Promise<AssessmentPreview> {
+    const parsed = await this.parse(file, sheetName);
     const { rows, ...rest } = parsed;
     return { ...rest, filename: file.originalname ?? '', sample: rows.slice(0, 10) };
   }
 
   // ==================== 入库 ====================
 
-  /** 确认导入：同批次内重复已在解析阶段合并，跨批次按业务键覆盖 */
-  async commit(auth: BizAuthContext, file: { buffer: Buffer; originalname?: string; size?: number }): Promise<{
+  /**
+   * 确认导入。
+   * 采用「按月份替换」语义：文件覆盖到的月份，先删掉旧的导入行再整批写入。
+   * 原因：这类文件是月度/全量快照，修正后重新上传应当覆盖而不是叠加；
+   * 若用追加，同一份文件传两次就会把总分翻倍。线下填报行（source=offline）不受影响。
+   */
+  async commit(auth: BizAuthContext, file: { buffer: Buffer; originalname?: string; size?: number }, sheetName?: string): Promise<{
     batchId: string; totalRows: number; insertedRows: number; updatedRows: number;
-    duplicateRows: number; failedRows: number; months: string[];
+    duplicateRows: number; failedRows: number; months: string[]; sheetName: string; replacedRows: number;
   }> {
-    const parsed = await this.parse(file);
+    const parsed = await this.parse(file, sheetName);
     if (parsed.rows.length === 0) throw new BadRequestException('文件中没有可导入的有效数据行');
 
     const batchId = randomUUID();
@@ -351,60 +419,40 @@ export class BizAssessmentsImportService {
       uploadedAt: new Date(),
     });
 
-    // 已存在业务键 → 覆盖；否则新增
-    const keys = parsed.rows.map((row) => row.dedupKey);
-    const existing = new Map<string, string>();
-    for (let index = 0; index < keys.length; index += 200) {
-      const chunk = keys.slice(index, index + 200);
-      const found = await this.recordRepo.find({ where: { dedupKey: In(chunk) }, select: ['id', 'dedupKey'] });
-      for (const item of found) existing.set(item.dedupKey, item.id);
+    // 1. 按月份删除旧的导入行（保留线下填报）
+    let replacedRows = 0;
+    if (parsed.months.length > 0) {
+      const deleted = await this.recordRepo
+        .createQueryBuilder()
+        .delete()
+        .from(AssessmentRecordEntity)
+        .where('source = :source', { source: 'import' })
+        .andWhere('eval_month IN (:...months)', { months: parsed.months })
+        .execute();
+      replacedRows = deleted.affected ?? 0;
     }
 
-    const toInsert: AssessmentRecordEntity[] = [];
-    const toUpdate: Array<{ id: string; row: AssessmentPreviewRow }> = [];
-    for (const row of parsed.rows) {
-      const id = existing.get(row.dedupKey);
-      if (id) {
-        toUpdate.push({ id, row });
-      } else {
-        toInsert.push({
-          id: randomUUID(), source: 'import', batchId,
-          evalMonth: row.evalMonth, projectName: row.projectName,
-          cityId: row.cityId, cityName: row.cityName, provinceId: row.provinceId,
-          supplierName: row.supplierName, contractId: null, contractNo: null,
-          score: row.score, grade: null, evalMethod: row.evalMethod,
-          srcSeq: row.srcSeq, rawJson: row.raw, status: 'active', dedupKey: row.dedupKey,
-          submittedBy: null, submittedAt: null, returnedBy: null, returnedAt: null, returnReason: null,
-          voidedBy: null, voidedAt: null, voidReason: null,
-          createdBy: auth.userId, updatedBy: auth.userId,
-        } as AssessmentRecordEntity);
-      }
-    }
+    // 2. 整批写入（行级唯一键，分块插入避免单条 SQL 过大）
+    const toInsert: AssessmentRecordEntity[] = parsed.rows.map((row) => ({
+      id: randomUUID(), source: 'import', batchId,
+      evalMonth: row.evalMonth, projectName: row.projectName,
+      cityId: row.cityId, cityName: row.cityName, provinceId: row.provinceId,
+      supplierName: row.supplierName, contractId: null, contractNo: null,
+      score: row.score, grade: null, evalMethod: row.evalMethod,
+      srcSeq: row.srcSeq, rawJson: row.raw, status: 'active', dedupKey: row.dedupKey,
+      submittedBy: null, submittedAt: null, returnedBy: null, returnedAt: null, returnReason: null,
+      voidedBy: null, voidedAt: null, voidReason: null,
+      createdBy: auth.userId, updatedBy: auth.userId,
+    } as AssessmentRecordEntity));
 
-    for (let index = 0; index < toInsert.length; index += 200) {
-      await this.recordRepo.insert(toInsert.slice(index, index + 200));
-    }
-    for (const { id, row } of toUpdate) {
-      await this.recordRepo.update({ id }, {
-        batchId,
-        evalMonth: row.evalMonth,
-        projectName: row.projectName,
-        cityId: row.cityId,
-        cityName: row.cityName,
-        provinceId: row.provinceId,
-        supplierName: row.supplierName,
-        score: row.score,
-        evalMethod: row.evalMethod,
-        srcSeq: row.srcSeq,
-        rawJson: row.raw,
-        updatedBy: auth.userId,
-      });
+    for (let index = 0; index < toInsert.length; index += 300) {
+      await this.recordRepo.insert(toInsert.slice(index, index + 300));
     }
 
     await this.batchRepo.update({ id: batchId }, {
       status: 'imported',
       insertedRows: toInsert.length,
-      updatedRows: toUpdate.length,
+      updatedRows: replacedRows,
     });
     await this.recordOp(auth.userId, 'assessment.import.commit', batchId);
 
@@ -412,10 +460,12 @@ export class BizAssessmentsImportService {
       batchId,
       totalRows: parsed.totalRows,
       insertedRows: toInsert.length,
-      updatedRows: toUpdate.length,
+      updatedRows: replacedRows,
+      replacedRows,
       duplicateRows: parsed.duplicateRows,
       failedRows: parsed.failedRows,
       months: parsed.months,
+      sheetName: parsed.sheetName,
     };
   }
 

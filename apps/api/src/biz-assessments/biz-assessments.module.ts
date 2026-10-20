@@ -13,6 +13,7 @@ import { BizAssessmentsController } from './biz-assessments.controller';
 import { BizAssessmentsImportService } from './biz-assessments-import.service';
 import { BizAssessmentsQueryService } from './biz-assessments-query.service';
 import { BizAssessmentsEntryService } from './biz-assessments-entry.service';
+import { BizAssessmentsScorecardService } from './biz-assessments-scorecard.service';
 
 /**
  * 工程管理 / 后评估管理模块
@@ -34,7 +35,7 @@ import { BizAssessmentsEntryService } from './biz-assessments-entry.service';
     RbacModule,
   ],
   controllers: [BizAssessmentsController],
-  providers: [BizAssessmentsImportService, BizAssessmentsQueryService, BizAssessmentsEntryService],
+  providers: [BizAssessmentsImportService, BizAssessmentsQueryService, BizAssessmentsEntryService, BizAssessmentsScorecardService],
   exports: [BizAssessmentsQueryService],
 })
 export class BizAssessmentsModule {}

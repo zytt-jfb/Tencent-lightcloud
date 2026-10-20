@@ -109,7 +109,7 @@ export default function AssessmentImport() {
     { title: '批次月份', dataIndex: 'evalMonth', key: 'evalMonth', width: 110, render: (value: string | null) => value ? formatMonth(value) : '跨月' },
     { title: '数据行', dataIndex: 'totalRows', key: 'totalRows', width: 80, align: 'right' as const },
     { title: '新增', dataIndex: 'insertedRows', key: 'insertedRows', width: 70, align: 'right' as const },
-    { title: '覆盖', dataIndex: 'updatedRows', key: 'updatedRows', width: 70, align: 'right' as const },
+    { title: '替换旧行', dataIndex: 'updatedRows', key: 'updatedRows', width: 90, align: 'right' as const },
     { title: '重复合并', dataIndex: 'duplicateRows', key: 'duplicateRows', width: 90, align: 'right' as const },
     { title: '失败', dataIndex: 'failedRows', key: 'failedRows', width: 70, align: 'right' as const, render: (value: number) => value > 0 ? <Text type="danger">{value}</Text> : 0 },
     {
@@ -191,7 +191,10 @@ export default function AssessmentImport() {
           }
         >
           <Descriptions size="small" column={4} bordered style={{ marginBottom: 12 }}>
-            <Descriptions.Item label="工作表">{preview.sheetName}</Descriptions.Item>
+            <Descriptions.Item label="工作表">
+              <Text strong>{preview.sheetName}</Text>
+              {preview.sheets && preview.sheets.length > 1 ? <Text type="secondary">（自动识别，共 {preview.sheets.length} 个工作表）</Text> : null}
+            </Descriptions.Item>
             <Descriptions.Item label="数据行">{preview.totalRows}</Descriptions.Item>
             <Descriptions.Item label="可入库"><Text strong>{validRows}</Text></Descriptions.Item>
             <Descriptions.Item label="重复合并">{preview.duplicateRows}</Descriptions.Item>

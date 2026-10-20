@@ -341,8 +341,8 @@ export default function AssessmentEntry() {
           <Form.Item name="supplierName" label="供应商" rules={[{ required: true, message: '请填写供应商名称' }]}>
             <Input placeholder="如：中屹技术有限公司" maxLength={200} />
           </Form.Item>
-          <Form.Item name="score" label="后评价分数（0-100）" rules={[{ required: true, message: '请填写分数' }]}>
-            <InputNumber min={0} max={100} precision={2} style={{ width: '100%' }} placeholder="如 96.00" />
+          <Form.Item name="score" label="后评价分数（0-150，含加分项）" rules={[{ required: true, message: '请填写分数' }]}>
+            <InputNumber min={0} max={150} precision={2} style={{ width: '100%' }} placeholder="如 96.00" />
           </Form.Item>
           <Form.Item name="evalMethod" label="后评价方式" rules={[{ required: true }]}>
             <Radio.Group>

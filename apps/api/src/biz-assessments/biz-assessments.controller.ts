@@ -15,6 +15,7 @@ import {
 } from './biz-assessments-import.service';
 import { AssessmentQueryFilter, BizAssessmentsQueryService } from './biz-assessments-query.service';
 import { AssessmentEntryDto, BizAssessmentsEntryService } from './biz-assessments-entry.service';
+import { BizAssessmentsScorecardService } from './biz-assessments-scorecard.service';
 
 /** 查询参数可能是单值或数组，统一成数组 */
 function toArray(value: unknown): string[] | undefined {
@@ -54,6 +55,7 @@ export class BizAssessmentsController {
     private readonly importService: BizAssessmentsImportService,
     private readonly queryService: BizAssessmentsQueryService,
     private readonly entryService: BizAssessmentsEntryService,
+    private readonly scorecardService: BizAssessmentsScorecardService,
   ) {}
 
   // ==================== 概览 ====================
@@ -84,6 +86,29 @@ export class BizAssessmentsController {
     return { items, total: items.length };
   }
 
+  /** 供应商成绩单：选中供应商 × 月份 → 每个采购项目的本月得分、累计、两个排名 */
+  @Get('scorecard')
+  @BizPermissions(BizPermissionCode.ASSESSMENT_OVERVIEW_READ)
+  async scorecard(@BizAuthUser() auth: BizAuthContext, @Query() query: Record<string, unknown>) {
+    return this.scorecardService.scorecard(auth, {
+      supplier: String(query.supplier ?? ''),
+      month: query.month ? String(query.month) : undefined,
+      projectNames: toArray(query.projects),
+      provinceIds: toArray(query.provinceIds),
+    });
+  }
+
+  /** 单合同排名解剖：块① 地市维度、块② 省维度排名、块③ 供应商分层、月度趋势 */
+  @Get('project-breakdown')
+  @BizPermissions(BizPermissionCode.ASSESSMENT_OVERVIEW_READ)
+  async projectBreakdown(@BizAuthUser() auth: BizAuthContext, @Query() query: Record<string, unknown>) {
+    return this.scorecardService.breakdown(auth, {
+      projectName: String(query.project ?? ''),
+      month: query.month ? String(query.month) : undefined,
+      supplier: String(query.supplier ?? ''),
+    });
+  }
+
   // ==================== 数据导入 ====================
 
   @Get('batches')
@@ -96,17 +121,17 @@ export class BizAssessmentsController {
   @Post('import/preview')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: ASSESSMENT_FILE_MAX_BYTES } }))
   @BizPermissions(BizPermissionCode.ASSESSMENT_IMPORT_UPLOAD)
-  async preview(@UploadedFile() file?: Express.Multer.File) {
+  async preview(@UploadedFile() file?: Express.Multer.File, @Body() body?: { sheetName?: string }) {
     if (!file) throw new BadRequestException('请选择要上传的 Excel 文件');
-    return this.importService.preview(file);
+    return this.importService.preview(file, body?.sheetName);
   }
 
   @Post('import')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: ASSESSMENT_FILE_MAX_BYTES } }))
   @BizPermissions(BizPermissionCode.ASSESSMENT_IMPORT_UPLOAD)
-  async commit(@BizAuthUser() auth: BizAuthContext, @UploadedFile() file?: Express.Multer.File) {
+  async commit(@BizAuthUser() auth: BizAuthContext, @UploadedFile() file?: Express.Multer.File, @Body() body?: { sheetName?: string }) {
     if (!file) throw new BadRequestException('请选择要上传的 Excel 文件');
-    return this.importService.commit(auth, file);
+    return this.importService.commit(auth, file, body?.sheetName);
   }
 
   @Delete('batches/:id')

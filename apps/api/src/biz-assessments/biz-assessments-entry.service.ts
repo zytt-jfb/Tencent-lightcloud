@@ -143,7 +143,8 @@ export class BizAssessmentsEntryService {
   }
 
   private assertScoreAndMonth(score: number, evalMonth: string): void {
-    if (!Number.isFinite(score) || score < 0 || score > 100) throw new BadRequestException('后评价分数必须在 0-100 之间');
+    // 与导入口径一致：允许加分项，上限 150
+    if (!Number.isFinite(score) || score < 0 || score > 150) throw new BadRequestException('后评价分数必须在 0-150 之间');
     if (!/^\d{4}-\d{2}$/.test(evalMonth)) throw new BadRequestException('后评价月份格式应为 YYYY-MM');
     if (evalMonth > currentMonth()) throw new BadRequestException('后评价月份不能是未来月份');
   }

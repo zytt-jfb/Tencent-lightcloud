@@ -178,6 +178,7 @@ export default function BizLayout() {
   // 工程管理：一级抽屉「后评估管理」，下辖概览 / 数据导入 / 线下填报
   const assessmentItems = filterByPermission([
     { key: '/biz/engineering/assessment', label: '后评估概览', permission: 'assessment.overview.read' },
+    { key: '/biz/engineering/assessment/scorecard', label: '供应商成绩单', permission: 'assessment.overview.read' },
     { key: '/biz/engineering/assessment/import', label: '数据导入', permission: 'assessment.import.read' },
     { key: '/biz/engineering/assessment/entry', label: '线下填报', permission: 'assessment.entry.read' },
   ], permSet, isSuper, me?.roleCode);
@@ -225,7 +226,7 @@ export default function BizLayout() {
     '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
     '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
     '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
-    '/biz/engineering/assessment/import', '/biz/engineering/assessment/entry', '/biz/engineering/assessment',
+    '/biz/engineering/assessment/import', '/biz/engineering/assessment/entry', '/biz/engineering/assessment/scorecard', '/biz/engineering/assessment',
   ];
   const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const activeGroupKey = location.pathname.startsWith('/biz/analysis')
