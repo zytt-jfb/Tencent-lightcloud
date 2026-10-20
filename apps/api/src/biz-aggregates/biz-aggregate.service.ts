@@ -760,6 +760,13 @@ export class BizAggregateService {
       if (!citiesByContract.has(a.contractId)) citiesByContract.set(a.contractId, new Set());
       citiesByContract.get(a.contractId)!.add(a.cityId);
     }
+    // 上限取"当前年 + 1"（按 Asia/Shanghai 计算）。
+    // 房屋/场地租赁合同可能是 20 年期（实测 3 份：2019 签、2039 到期），
+    // 无上限展开会让年度下拉出现一堆没有经营数据的未来年份（如 2039）。
+    // 注意：这里只限制**下拉选项**，合同有效性判断仍按真实日期计算 ——
+    // 选 2026 年时，2039 年到期的合同依然会计入合同数与合同额。
+    const currentYearCst = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric' }).format(new Date()));
+    const maxOptionYear = currentYearCst + 1;
     for (const c of contracts) {
       if (!this.isContractVisible(auth, c, undefined, citiesByContract)) continue;
       const signedYear = c.signedDate ? Number(String(c.signedDate).slice(0, 4)) : NaN;
@@ -767,7 +774,7 @@ export class BizAggregateService {
       const candidates = [signedYear, endYear].filter((n) => Number.isFinite(n) && n >= 2000 && n <= 2100);
       if (!candidates.length) continue;
       const from = Math.min(...candidates);
-      const to = Math.max(...candidates);
+      const to = Math.min(Math.max(...candidates), maxOptionYear);
       for (let y = from; y <= to; y += 1) years.add(String(y));
     }
 
