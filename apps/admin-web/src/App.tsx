@@ -33,6 +33,9 @@ const PerformanceMonthlyScore = lazy(() => import('@/pages/biz/performance/Month
 const PerformanceOverview = lazy(() => import('@/pages/biz/performance/Overview'));
 const PerformanceUpload = lazy(() => import('@/pages/biz/performance/Upload'));
 const BizPlaceholder = lazy(() => import('@/pages/biz/BizPlaceholder'));
+const AssessmentOverview = lazy(() => import('@/pages/biz/engineering/AssessmentOverview'));
+const AssessmentImport = lazy(() => import('@/pages/biz/engineering/AssessmentImport'));
+const AssessmentEntry = lazy(() => import('@/pages/biz/engineering/AssessmentEntry'));
 const BizAdmin = lazy(() => import('@/pages/biz/BizAdmin'));
 const BizAuditLogs = lazy(() => import('@/pages/biz/BizAuditLogs'));
 const BizContracts = lazy(() => import('@/pages/biz/BizContracts'));
@@ -150,6 +153,11 @@ export default function App() {
       <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="maintenance/vehicles" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="maintenance/generators" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
+      <Route path="engineering" element={<Navigate to="/biz/engineering/assessment" replace />} />
+      <Route path="engineering/assessment" element={<Suspense fallback={<PageLoading />}><AssessmentOverview /></Suspense>} />
+      <Route path="engineering/assessment/import" element={<Suspense fallback={<PageLoading />}><AssessmentImport /></Suspense>} />
+      <Route path="engineering/assessment/entry" element={<Suspense fallback={<PageLoading />}><AssessmentEntry /></Suspense>} />
+      <Route path="placeholder/engineering" element={<Navigate to="/biz/engineering/assessment" replace />} />
       <Route path="performance/monthly-score" element={<Suspense fallback={<PageLoading />}><PerformanceMonthlyScore /></Suspense>} />
       <Route path="performance/overview" element={<Suspense fallback={<PageLoading />}><PerformanceOverview /></Suspense>} />
       <Route path="performance/upload" element={<Suspense fallback={<PageLoading />}><PerformanceUpload /></Suspense>} />

@@ -13,6 +13,8 @@ export const BizModuleCode = {
   OPERATION: 'operation',
   ASSET: 'asset',
   PERSONNEL: 'personnel',
+  /** 工程管理下的二级模块：后评估管理 */
+  ASSESSMENT: 'assessment',
 } as const;
 export type BizModuleCodeValue = (typeof BizModuleCode)[keyof typeof BizModuleCode];
 
@@ -28,6 +30,16 @@ export const BizPermissionCode = {
   MAINTENANCE_ASSET_ENTER: 'maintenance.asset.enter',
   MAINTENANCE_PERSONNEL_ENTER: 'maintenance.personnel.enter',
   MAINTENANCE_DATA_DELETE: 'maintenance.data.delete',
+  // 工程管理 - 后评估管理
+  ASSESSMENT_OVERVIEW_READ: 'assessment.overview.read',
+  ASSESSMENT_OVERVIEW_EXPORT: 'assessment.overview.export',
+  ASSESSMENT_IMPORT_READ: 'assessment.import.read',
+  ASSESSMENT_IMPORT_UPLOAD: 'assessment.import.upload',
+  ASSESSMENT_IMPORT_DELETE: 'assessment.import.delete',
+  ASSESSMENT_ENTRY_READ: 'assessment.entry.read',
+  ASSESSMENT_ENTRY_CREATE: 'assessment.entry.create',
+  ASSESSMENT_ENTRY_SUBMIT: 'assessment.entry.submit',
+  ASSESSMENT_ENTRY_RETURN: 'assessment.entry.return',
   // 经营管理 - 总览/分析
   OPERATION_HOME_READ: 'operation.home.read',
   OPERATION_ANALYSIS_READ: 'operation.analysis.read',
@@ -89,6 +101,15 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.PORTAL_ENGINEERING_ENTER,
     BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
     BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
+    BizPermissionCode.ASSESSMENT_IMPORT_READ,
+    BizPermissionCode.ASSESSMENT_IMPORT_UPLOAD,
+    BizPermissionCode.ASSESSMENT_IMPORT_DELETE,
+    BizPermissionCode.ASSESSMENT_ENTRY_READ,
+    BizPermissionCode.ASSESSMENT_ENTRY_CREATE,
+    BizPermissionCode.ASSESSMENT_ENTRY_SUBMIT,
+    BizPermissionCode.ASSESSMENT_ENTRY_RETURN,
     BizPermissionCode.OPERATION_HOME_READ,
     BizPermissionCode.OPERATION_ANALYSIS_READ,
     BizPermissionCode.OPERATION_CONTRACT_READ,
@@ -160,7 +181,13 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
   ],
   city_user: [
     BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
+    BizPermissionCode.PORTAL_ENGINEERING_ENTER,
     BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
+    BizPermissionCode.ASSESSMENT_ENTRY_READ,
+    BizPermissionCode.ASSESSMENT_ENTRY_CREATE,
+    BizPermissionCode.ASSESSMENT_ENTRY_SUBMIT,
     BizPermissionCode.OPERATION_HOME_READ,
     BizPermissionCode.OPERATION_ANALYSIS_READ,
     BizPermissionCode.OPERATION_CONTRACT_READ,

@@ -65,6 +65,8 @@ const FIELD_LABEL: Record<string, string> = {
   username: '账号', name: '名称', roleCode: '角色', status: '状态', description: '说明',
   createdAt: '创建时间', updatedAt: '更新时间', remark: '备注', failureReason: '说明',
   actionType: '操作类型', targetType: '对象类型', resultStatus: '结果', operator: '操作人',
+  evalMonth: '后评价月份', projectName: '采购项目名称', score: '分数', grade: '等级',
+  evalMethod: '后评价方式', source: '数据来源', returnReason: '退回原因',
 };
 
 /** 常见枚举值 → 中文。未命中时保留原值。 */
@@ -79,6 +81,7 @@ const ENUM_LABEL: Record<string, string> = {
   rent: '房租', reimbursement: '报销', other: '其他',
   overrun: '超额', normal: '正常', ok: '正常',
   success: '成功', failure: '失败', queued: '排队中',
+  online: '线上', offline: '线下', submitted: '已提交', returned: '已退回', import: '导入',
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

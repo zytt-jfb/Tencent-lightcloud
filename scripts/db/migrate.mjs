@@ -772,6 +772,15 @@ async function inspectState(version) {
     if (!await adapter.tableExists('biz_order_rows')) return 'empty';
     return await adapter.indexExists('biz_order_rows', 'idx_order_scope_cover') ? 'satisfied' : 'empty';
   }
+  if (version === '040_biz_assessment') {
+    // 只检查本迁移新建的两张表与唯一索引：biz_permissions / biz_role_permissions 由 010/012 建，
+    // 放在这里会让全新库被判成 partial；权限种子本身可重复执行，无需参与状态判定。
+    return allOrNothing([
+      adapter.tableExists('biz_assessment_batch'),
+      adapter.tableExists('biz_assessment_record'),
+      adapter.indexExists('biz_assessment_record', 'uk_biz_assessment_dedup'),
+    ]);
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

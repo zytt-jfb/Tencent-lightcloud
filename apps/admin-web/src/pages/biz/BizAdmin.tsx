@@ -24,6 +24,7 @@ const MODULE_LABEL: Record<string, string> = {
   completion: '线下完工', cost: '地市成本', user: '用户管理', settings: '系统设置',
   module: '模块管理', role: '角色管理', region: '省市设置',
   announcement: '公告发布', message: '消息中心',
+  assessment: '工程管理 / 后评估',
   operationHome: '经营管理 / 首页', operationAnalysis: '经营管理 / 数据分析', operationContract: '经营管理 / 合同管理', operationOrder: '经营管理 / 订单管理', operationCompletion: '经营管理 / 完工管理', operationCost: '经营管理 / 成本管理',
   systemMessage: '系统设置 / 消息中心', systemAnnouncement: '系统设置 / 公告管理', systemUser: '系统设置 / 账号与权限', systemSettings: '系统设置 / 参数设置', systemRegion: '系统设置 / 省市设置',
 };
@@ -32,6 +33,7 @@ const MODULE_DESCRIPTION: Record<string, string> = {
   maintenanceEntry: '独立控制维护管理模块的可见性和访问权限',
   operationEntry: '独立控制经营管理模块的可见性和访问权限',
   systemEntry: '独立控制全局系统设置模块的可见性和访问权限',
+  assessment: '后评估概览、数据导入和线下填报',
   operationHome: '经营管理首页和数据入口', operationAnalysis: '经营概览、趋势、地市对比和超额清单', operationContract: '合同查看、上传、分配和费率维护', operationOrder: '订单上传、维护、作废和导出', operationCompletion: '线下完工填报、提交和审核', operationCost: '地市成本填报、退回和导出',
   systemMessage: '系统消息和公告查看', systemAnnouncement: '公告编制、发布和撤回', systemUser: '账号、角色、权限和数据范围', systemSettings: '全局参数及预警设置', systemRegion: '省份和地市字典管理',
   home: '门户首页和经营入口', analysis: '经营概览、趋势、地市对比和超额清单', contract: '合同查看、上传、分配和费率维护', order: '订单上传、待维护、作废和导出',

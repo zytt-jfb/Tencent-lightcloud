@@ -19,6 +19,8 @@ export class BizAuthGuard extends AuthGuard('biz-jwt') {
         ? 'maintenance.data.delete'
         : path.startsWith('/api/biz/maintenance/')
           ? 'portal.maintenance.enter'
+        : path.startsWith('/api/biz/assessment')
+          ? 'portal.engineering.enter'
         : /^\/api\/biz\/(admin|settings)(\/|$)/.test(path) ? 'portal.system.enter'
         : /^\/api\/biz\/(contracts|fee-rates|orders|completions|offline-completions|costs|aggregates|analysis|snapshots)(\/|$)/.test(path)
           ? 'maintenance.operation.enter' : undefined;

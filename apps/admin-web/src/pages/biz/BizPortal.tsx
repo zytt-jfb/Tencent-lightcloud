@@ -80,7 +80,7 @@ export default function BizPortal() {
             <Card
               key={m.code}
               hoverable
-              onClick={() => navigate(m.code === 'system' ? '/biz/system' : m.code === 'maintenance' ? '/biz/maintenance' : m.code === 'operation' ? '/biz/operation' : `/biz/placeholder/${m.code}`)}
+              onClick={() => navigate(m.code === 'system' ? '/biz/system' : m.code === 'maintenance' ? '/biz/maintenance' : m.code === 'operation' ? '/biz/operation' : m.code === 'engineering' ? '/biz/engineering/assessment' : `/biz/placeholder/${m.code}`)}
               style={{ textAlign: 'center', padding: 16 }}
             >
               <div className="biz-module-icon" style={{ marginBottom: 8 }}>{MODULE_ICON[m.code] ?? null}</div>

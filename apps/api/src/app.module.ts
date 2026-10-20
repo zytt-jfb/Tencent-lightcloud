@@ -37,6 +37,7 @@ import { RequestIdMiddleware } from './common/http/request-id.middleware';
 import { HttpLoggingInterceptor } from './common/http/http-logging.interceptor';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { PerformanceModule } from './performance/performance.module';
+import { BizAssessmentsModule } from './biz-assessments/biz-assessments.module';
 
 @Module({
   imports: [
@@ -139,6 +140,7 @@ import { PerformanceModule } from './performance/performance.module';
     BizDataDeletionModule,
     MaintenanceModule,
     PerformanceModule,
+    BizAssessmentsModule,
     BizCommunicationsModule,
     BizDataDeletionModule,
     MaintenanceModule,

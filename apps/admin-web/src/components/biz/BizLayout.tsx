@@ -3,6 +3,7 @@ import { Avatar, Button, Drawer, Dropdown, Form, Input, Layout, Menu, Modal, Res
 import {
   ApartmentOutlined, BarChartOutlined, FileTextOutlined, InboxOutlined, SettingOutlined,
   BellOutlined, DeleteOutlined, HomeOutlined, KeyOutlined, TeamOutlined, UserOutlined, WalletOutlined, MenuOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { bizChangeOwnPassword, bizMe, bizMessageList, type BizSnapshotMetadata } from '@/api/biz.api';
@@ -174,6 +175,16 @@ export default function BizLayout() {
     { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined /> },
   ];
 
+  // 工程管理：一级抽屉「后评估管理」，下辖概览 / 数据导入 / 线下填报
+  const assessmentItems = filterByPermission([
+    { key: '/biz/engineering/assessment', label: '后评估概览', permission: 'assessment.overview.read' },
+    { key: '/biz/engineering/assessment/import', label: '数据导入', permission: 'assessment.import.read' },
+    { key: '/biz/engineering/assessment/entry', label: '线下填报', permission: 'assessment.entry.read' },
+  ], permSet, isSuper, me?.roleCode);
+  const engineeringItems: NonNullable<MenuProps['items']> = assessmentItems.length > 0
+    ? [{ key: 'assessment', label: '后评估管理', icon: <SafetyCertificateOutlined />, children: assessmentItems }]
+    : [];
+
   const businessItems: NonNullable<MenuProps['items']> = [
     ...(analysisItems.length > 0 ? [{ key: 'biz-analysis', label: '经营管理', icon: <BarChartOutlined />, children: analysisItems }] : []),
     ...(contractItems.length > 0 ? [{ key: 'biz-contract', label: '合同管理', icon: <FileTextOutlined />, children: contractItems }] : []),
@@ -184,9 +195,10 @@ export default function BizLayout() {
     ...messageItems,
     ...businessItems,
   ];
+  const isEngineeringModule = location.pathname.startsWith('/biz/engineering') || location.pathname.startsWith('/biz/placeholder/engineering');
   const isMaintenanceModule = location.pathname.startsWith('/biz/maintenance') || location.pathname.startsWith('/biz/performance');
   const isSystemModule = ['/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
-  const moduleName = isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
+  const moduleName = isEngineeringModule ? '工程管理' : isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
   const standaloneMaintenanceItems: MenuProps['items'] = [
     { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
     { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined /> },
@@ -213,6 +225,7 @@ export default function BizLayout() {
     '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
     '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
     '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
+    '/biz/engineering/assessment/import', '/biz/engineering/assessment/entry', '/biz/engineering/assessment',
   ];
   const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const activeGroupKey = location.pathname.startsWith('/biz/analysis')
@@ -224,6 +237,8 @@ export default function BizLayout() {
       ? 'biz-cost'
       : location.pathname.startsWith('/biz/orders') || location.pathname.startsWith('/biz/offline-completions')
         ? 'biz-completion'
+        : location.pathname.startsWith('/biz/engineering')
+          ? 'assessment'
         : location.pathname.startsWith('/biz/performance')
           ? 'performance'
         : location.pathname.startsWith('/biz/maintenance')
@@ -242,7 +257,7 @@ export default function BizLayout() {
       theme="dark"
       style={{ borderInlineEnd: 'none' }}
       selectedKeys={selectedKey ? [String(selectedKey)] : []}
-      items={isMaintenanceModule ? standaloneMaintenanceItems : isSystemModule ? systemItems : (isMobile ? mobileMenuItems : menuItems)}
+      items={isSystemModule ? systemItems : isEngineeringModule ? engineeringItems : isMaintenanceModule ? standaloneMaintenanceItems : (isMobile ? mobileMenuItems : menuItems)}
       openKeys={isMobile ? undefined : visibleOpenKeys}
       onOpenChange={isMobile ? undefined : (keys) => setOpenKeys(keys as string[])}
       onClick={({ key }) => { if (String(key).startsWith('/biz/')) navigate(String(key)); if (isMobile) setMobileOpen(false); }}
@@ -251,7 +266,7 @@ export default function BizLayout() {
 
   if (isModulePortal) return <Outlet />;
   if (!me) return <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>;
-  const modulePermission = isSystemModule ? 'portal.system.enter' : isMaintenanceModule ? 'portal.maintenance.enter'
+  const modulePermission = isSystemModule ? 'portal.system.enter' : isEngineeringModule ? 'portal.engineering.enter' : isMaintenanceModule ? 'portal.maintenance.enter'
     : location.pathname === '/biz/placeholder/engineering' ? 'portal.engineering.enter'
       : /^\/biz\/(operation|analysis|contract-overview|fee-rates|orders|offline-completions|costs)(\/|$)/.test(location.pathname) ? 'maintenance.operation.enter' : undefined;
   if (me && modulePermission && !isSuper && !permSet.has(modulePermission)) {
@@ -277,7 +292,7 @@ export default function BizLayout() {
             {isMobile && <Text strong>{moduleName}</Text>}
             <Button type="text" icon={<HomeOutlined />} onClick={() => navigate('/biz/portal')}>门户首页</Button>
           </Space>
-          {!isMaintenanceModule && !isSystemModule && <SnapshotStatusBar />}
+          {!isMaintenanceModule && !isSystemModule && !isEngineeringModule && <SnapshotStatusBar />}
           <Dropdown
             menu={{ items: [
               { key: 'password', icon: <KeyOutlined />, label: '修改密码', onClick: () => setPasswordOpen(true) },
