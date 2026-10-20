@@ -10,6 +10,9 @@ import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entit
 import { BizAuthContext } from '../rbac/rbac.service';
 import { buildDedupKey, normalizeDisplay, round2 } from './assessment-normalize';
 
+/** 线下填报固定供应商：后评估由中屹技术承接，不需要地市人员填写 */
+export const DEFAULT_ENTRY_SUPPLIER = '中屹技术有限公司';
+
 export interface AssessmentEntryDto {
   contractId: string;
   /** YYYY-MM */
@@ -174,8 +177,7 @@ export class BizAssessmentsEntryService {
     const city = await this.resolveCity(auth, dto.cityId);
     const score = round2(Number(dto.score));
     this.assertScoreAndMonth(score, dto.evalMonth);
-    const supplierName = normalizeDisplay(dto.supplierName);
-    if (!supplierName) throw new BadRequestException('供应商不能为空');
+    const supplierName = normalizeDisplay(dto.supplierName ?? '') || DEFAULT_ENTRY_SUPPLIER;
     const contract = await this.assertContract(dto.contractId, city);
 
     const dedupKey = buildDedupKey(['offline', dto.evalMonth, contract.id, supplierName]);
@@ -227,8 +229,9 @@ export class BizAssessmentsEntryService {
     const evalMonth = dto.evalMonth ?? item.evalMonth;
     const score = round2(Number(dto.score ?? item.score));
     this.assertScoreAndMonth(score, evalMonth);
-    const supplierName = dto.supplierName === undefined ? item.supplierName : normalizeDisplay(dto.supplierName);
-    if (!supplierName) throw new BadRequestException('供应商不能为空');
+    const supplierName = dto.supplierName === undefined
+      ? (item.supplierName || DEFAULT_ENTRY_SUPPLIER)
+      : (normalizeDisplay(dto.supplierName) || DEFAULT_ENTRY_SUPPLIER);
     const contractId = dto.contractId ?? item.contractId;
     if (!contractId) throw new BadRequestException('必须关联合同');
     const contract = await this.assertContract(contractId, city);
@@ -343,7 +346,8 @@ export class BizAssessmentsEntryService {
       const like = `%${keyword.trim()}%`;
       qb.andWhere('(c.contractNo LIKE :like OR c.contractName LIKE :like)', { like });
     }
-    const items = await qb.orderBy('c.contractNo', 'ASC').take(50).getMany();
+    // 上限 300：本项目合同量级在几十份，够覆盖“任选一份合同”的场景
+    const items = await qb.orderBy('c.contractNo', 'ASC').take(300).getMany();
     return items.map((item) => ({ id: item.id, contractNo: item.contractNo, contractName: item.contractName, provinceId: item.provinceId }));
   }
 

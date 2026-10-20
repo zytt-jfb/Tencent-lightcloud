@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Table, Tag, Tooltip, Typography, message,
+  Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message,
 } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -14,6 +14,10 @@ import {
 } from '@/api/biz-assessment.api';
 
 const { Title, Text } = Typography;
+
+/** 线下填报的固定值：这两项业务上不需要地市人员填 */
+const FIXED_SUPPLIER = '中屹技术有限公司';
+const FIXED_METHOD_LABEL = '线下';
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   draft: { label: '草稿', color: 'default' },
@@ -31,9 +35,11 @@ interface EntryFormValues {
   contractId: string;
   cityId?: string;
   evalMonth: dayjs.Dayjs;
-  supplierName: string;
+  /** 供应商固定为中屹，不再由填报人输入 */
+  supplierName?: string;
   score: number;
-  evalMethod: 'online' | 'offline';
+  /** 后评价方式固定为线下 */
+  evalMethod?: 'online' | 'offline';
 }
 
 /**
@@ -55,6 +61,7 @@ export default function AssessmentEntry() {
   const [saving, setSaving] = useState(false);
   const [contracts, setContracts] = useState<Array<{ id: string; contractNo: string; contractName: string }>>([]);
   const [cities, setCities] = useState<Array<{ id: string; name: string }>>([]);
+  const [contractLoading, setContractLoading] = useState(false);
   const [cityLoading, setCityLoading] = useState(false);
   const [form] = Form.useForm<EntryFormValues>();
   const selectedContractId = Form.useWatch('contractId', form);
@@ -89,18 +96,23 @@ export default function AssessmentEntry() {
   }, []);
 
   const loadContracts = useCallback(async (keyword?: string) => {
+    setContractLoading(true);
     try {
       const result = await assessmentContractOptions(keyword);
       setContracts(result.items.map((item) => ({ id: item.id, contractNo: item.contractNo, contractName: item.contractName })));
-    } catch {
+    } catch (error: unknown) {
       setContracts([]);
+      const detail = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(detail ?? '合同列表加载失败，请检查经营管理 / 合同管理中是否已有合同');
+    } finally {
+      setContractLoading(false);
     }
   }, []);
 
   const openCreate = async () => {
     setEditing(null);
     form.resetFields();
-    form.setFieldsValue({ evalMethod: 'offline', evalMonth: dayjs() });
+    form.setFieldsValue({ evalMonth: dayjs() });
     setCities([]);
     setDrawerOpen(true);
     await loadContracts();
@@ -112,9 +124,7 @@ export default function AssessmentEntry() {
       contractId: row.contractId ?? undefined,
       cityId: row.cityId ?? undefined,
       evalMonth: dayjs(`${row.evalMonth}-01`),
-      supplierName: row.supplierName,
       score: row.score,
-      evalMethod: row.evalMethod,
     });
     setDrawerOpen(true);
     await loadContracts();
@@ -139,17 +149,22 @@ export default function AssessmentEntry() {
   };
 
   const onSubmit = async () => {
-    const values = await form.validateFields();
+    // 手动触发校验时 antd 会 reject，这里吞掉：必填提示由表单自身显示，避免未捕获异常
+    let values: EntryFormValues;
+    try {
+      values = await form.validateFields();
+    } catch {
+      return;
+    }
     if (!values.evalMonth) { message.warning('请选择后评价月份'); return; }
     setSaving(true);
     try {
+      // 供应商与方式由后端固定（中屹 / 线下），前端不再提交
       const payload = {
         contractId: values.contractId,
         cityId: values.cityId,
         evalMonth: values.evalMonth.format('YYYY-MM'),
-        supplierName: values.supplierName.trim(),
         score: Number(values.score),
-        evalMethod: values.evalMethod,
       };
       if (editing) {
         await assessmentEntryUpdate(editing.id, payload);
@@ -313,12 +328,19 @@ export default function AssessmentEntry() {
         extra={<Button type="primary" loading={saving} onClick={() => void onSubmit()}>保存草稿</Button>}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="contractId" label="关联合同" rules={[{ required: true, message: '请选择合同' }]}>
+          <Form.Item
+            name="contractId" label="关联合同"
+            rules={[{ required: true, message: '请选择合同' }]}
+            extra={contracts.length > 0 ? `共 ${contracts.length} 份合同可选（来自经营管理 / 合同管理）` : undefined}
+          >
             <Select
               showSearch
-              placeholder="输入合同编号或名称搜索"
+              loading={contractLoading}
+              placeholder="点击选择合同，或输入合同编号/名称搜索"
               filterOption={false}
               onSearch={(value) => void loadContracts(value)}
+              onOpenChange={(open) => { if (open && contracts.length === 0) void loadContracts(); }}
+              notFoundContent={contractLoading ? '加载中…' : '没有匹配的合同，请先在经营管理 / 合同管理上传或新增合同'}
               onChange={(value) => { form.setFieldValue('cityId', undefined); void loadCities(String(value)); }}
               options={contracts.map((contract) => ({ value: contract.id, label: `${contract.contractNo} ${contract.contractName}`.slice(0, 60) }))}
             />
@@ -338,17 +360,14 @@ export default function AssessmentEntry() {
           <Form.Item name="evalMonth" label="后评价月份" rules={[{ required: true, message: '请选择后评价月份' }]}>
             <DatePicker picker="month" style={{ width: '100%' }} allowClear={false} />
           </Form.Item>
-          <Form.Item name="supplierName" label="供应商" rules={[{ required: true, message: '请填写供应商名称' }]}>
-            <Input placeholder="如：中屹技术有限公司" maxLength={200} />
+          <Form.Item label="供应商" extra="固定为中屹，无需填写">
+            <Input value={FIXED_SUPPLIER} disabled />
           </Form.Item>
           <Form.Item name="score" label="后评价分数（0-150，含加分项）" rules={[{ required: true, message: '请填写分数' }]}>
             <InputNumber min={0} max={150} precision={2} style={{ width: '100%' }} placeholder="如 96.00" />
           </Form.Item>
-          <Form.Item name="evalMethod" label="后评价方式" rules={[{ required: true }]}>
-            <Radio.Group>
-              <Radio.Button value="offline">线下</Radio.Button>
-              <Radio.Button value="online">线上</Radio.Button>
-            </Radio.Group>
+          <Form.Item label="后评价方式" extra="固定为线下，无需选择">
+            <Input value={FIXED_METHOD_LABEL} disabled />
           </Form.Item>
         </Form>
       </Drawer>

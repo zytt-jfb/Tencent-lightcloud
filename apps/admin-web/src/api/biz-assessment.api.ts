@@ -152,7 +152,8 @@ export interface AssessmentEntryRow {
 export interface AssessmentEntryPayload {
   contractId: string;
   evalMonth: string;
-  supplierName: string;
+  /** 缺省由后端固定为中屹技术有限公司 */
+  supplierName?: string;
   score: number;
   cityId?: string | null;
   evalMethod?: 'online' | 'offline';
