@@ -788,6 +788,12 @@ async function inspectState(version) {
     if (!provinceOk) return 'empty';
     return await adapter.scalar("SELECT COUNT(*) FROM biz_cities WHERE province_id = '00000000-0000-4000-8000-000000000031'").then((count) => count === 14 ? 'satisfied' : 'empty');
   }
+  if (version === '042_biz_liaoning_orphan_fix') {
+    // 判据：不存在 province_id 指向缺失省份的孤儿地市
+    if (!await adapter.tableExists('biz_cities') || !await adapter.tableExists('biz_provinces')) return 'empty';
+    return await adapter.scalar('SELECT COUNT(*) FROM biz_cities c LEFT JOIN biz_provinces p ON p.id = c.province_id WHERE p.id IS NULL')
+      .then((count) => count === 0 ? 'satisfied' : 'empty');
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 
