@@ -270,7 +270,7 @@ export async function assessmentEntryDelete(id: string): Promise<{ ok: true }> {
   return (await request.delete(`/biz/assessment/entries/${encodeURIComponent(id)}`)).data;
 }
 
-// ==================== 供应商成绩单 ====================
+// ==================== 供应商明细 ====================
 
 export interface SupplierScorecardRow {
   projectName: string;
@@ -351,7 +351,7 @@ export interface ProjectBreakdown {
   supplierCount: number;
 }
 
-/** 供应商成绩单：selected supplier × 月份 → 每个采购项目的本月得分与两个排名 */
+/** 供应商明细：选中供应商 × 月份 → 每个采购项目的本月得分与两个排名 */
 export async function assessmentScorecard(params: {
   supplier: string; month?: string; projects?: string[]; provinceIds?: string[];
 }): Promise<SupplierScorecard> {

@@ -165,7 +165,7 @@ function accumulate(rows: AssessmentRecordEntity[], month: string | null): Map<s
 }
 
 /**
- * 供应商成绩单与单合同排名解剖（工程管理 / 后评估管理）
+ * 供应商明细与单合同排名解剖（工程管理 / 后评估管理）
  *
  * 口径（对齐原汇报表，同时修正原表的三套均分口径）：
  *  - 本月得分 = 选中月份下该供应商在该项目所有明细的分数之和
@@ -226,7 +226,7 @@ export class BizAssessmentsScorecardService {
     return new Map(provinces.map((province) => [province.id, province.name]));
   }
 
-  // ==================== 供应商成绩单 ====================
+  // ==================== 供应商明细 ====================
 
   async scorecard(auth: BizAuthContext, params: {
     supplier: string; month?: string; projectNames?: string[]; provinceIds?: string[];

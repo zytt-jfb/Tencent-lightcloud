@@ -86,7 +86,7 @@ export class BizAssessmentsController {
     return { items, total: items.length };
   }
 
-  /** 供应商成绩单：选中供应商 × 月份 → 每个采购项目的本月得分、累计、两个排名 */
+  /** 供应商明细：选中供应商 × 月份 → 每个采购项目的本月得分、累计、两个排名 */
   @Get('scorecard')
   @BizPermissions(BizPermissionCode.ASSESSMENT_OVERVIEW_READ)
   async scorecard(@BizAuthUser() auth: BizAuthContext, @Query() query: Record<string, unknown>) {

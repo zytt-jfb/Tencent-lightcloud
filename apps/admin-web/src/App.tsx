@@ -156,7 +156,9 @@ export default function App() {
       <Route path="maintenance/generators" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
       <Route path="engineering" element={<Navigate to="/biz/engineering/assessment" replace />} />
       <Route path="engineering/assessment" element={<Suspense fallback={<PageLoading />}><AssessmentOverview /></Suspense>} />
-      <Route path="engineering/assessment/scorecard" element={<Suspense fallback={<PageLoading />}><SupplierScorecardPage /></Suspense>} />
+      <Route path="engineering/assessment/detail" element={<Suspense fallback={<PageLoading />}><SupplierScorecardPage /></Suspense>} />
+      {/* 旧路径保留跳转：已分享出去的 /scorecard 链接不能失效 */}
+      <Route path="engineering/assessment/scorecard" element={<Navigate to="/biz/engineering/assessment/detail" replace />} />
       <Route path="engineering/assessment/import" element={<Suspense fallback={<PageLoading />}><AssessmentImport /></Suspense>} />
       <Route path="engineering/assessment/entry" element={<Suspense fallback={<PageLoading />}><AssessmentEntry /></Suspense>} />
       <Route path="placeholder/engineering" element={<Navigate to="/biz/engineering/assessment" replace />} />

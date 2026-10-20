@@ -221,7 +221,7 @@ function Block3({ groups }: { groups: BreakdownGroup[] }) {
 }
 
 /**
- * 供应商成绩单（工程管理 / 后评估管理）
+ * 供应商明细（工程管理 / 后评估管理）
  * 视角：选一个供应商 → 它在每个采购项目上的本月得分、累计、两个排名；点行看排名解剖。
  * 排名分母固定为「同项目 + 同月 + 全体供应商」，不随筛选变化，保证换人看口径一致。
  */
@@ -258,7 +258,7 @@ export default function SupplierScorecardPage() {
       if (!month && result.month) setMonth(result.month);
     } catch (error: unknown) {
       const detail = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
-      message.error(detail ?? '成绩单加载失败');
+      message.error(detail ?? '明细加载失败');
     } finally {
       setLoading(false);
     }
@@ -335,7 +335,7 @@ export default function SupplierScorecardPage() {
       `}</style>
       <div className="v3-page-head">
         <div className="v3-page-titles">
-          <Title level={4} style={{ margin: 0 }}>供应商成绩单</Title>
+          <Title level={4} style={{ margin: 0 }}>明细</Title>
           <Text type="secondary">
             按「同项目 + 同月 + 全体供应商」排名；平均分 = 累计总分 ÷ 明细条数（加权）。点项目名看该合同的排名解剖
           </Text>
@@ -384,7 +384,7 @@ export default function SupplierScorecardPage() {
         )}
       </Card>
 
-      <Card size="small" title={`${supplier || '-'} · ${formatMonth(data?.month)} 成绩单`}>
+      <Card size="small" title={`${supplier || '-'} · ${formatMonth(data?.month)} 明细`}>
         <Table
           rowKey="projectName"
           size="small"
