@@ -33,6 +33,12 @@ export interface AssessmentOverviewRow {
   updatedAt: string;
 }
 
+export interface AssessmentExtreme {
+  score: number;
+  count: number;
+  sample: AssessmentOverviewRow[];
+}
+
 export interface AssessmentSummary {
   totalCount: number;
   supplierCount: number;
@@ -49,6 +55,7 @@ export interface AssessmentSummary {
   cities: Array<{ cityId: string | null; cityName: string; count: number; avgScore: number; minScore: number }>;
   suppliers: Array<{ supplierName: string; count: number; avgScore: number; minScore: number }>;
   distribution: Array<{ bucket: string; count: number }>;
+  extremes: { max: AssessmentExtreme | null; min: AssessmentExtreme | null };
 }
 
 export interface AssessmentQuery {

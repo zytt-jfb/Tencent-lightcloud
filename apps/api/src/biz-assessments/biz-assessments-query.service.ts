@@ -41,6 +41,15 @@ export interface AssessmentOverviewRow {
   updatedAt: Date;
 }
 
+/** 极值（最高分/最低分）所在记录：卡片可点，点开直达这条记录 */
+export interface AssessmentExtreme {
+  score: number;
+  /** 该分数一共有多少条 */
+  count: number;
+  /** 明细样本（最多 50 条，够定位到具体合同/地市/供应商） */
+  sample: AssessmentOverviewRow[];
+}
+
 export interface AssessmentSummary {
   totalCount: number;
   supplierCount: number;
@@ -57,6 +66,7 @@ export interface AssessmentSummary {
   cities: Array<{ cityId: string | null; cityName: string; count: number; avgScore: number; minScore: number }>;
   suppliers: Array<{ supplierName: string; count: number; avgScore: number; minScore: number }>;
   distribution: Array<{ bucket: string; count: number }>;
+  extremes: { max: AssessmentExtreme | null; min: AssessmentExtreme | null };
 }
 
 const DISTRIBUTION_BUCKETS: Array<{ bucket: string; test: (score: number) => boolean }> = [
@@ -209,14 +219,28 @@ export class BizAssessmentsQueryService {
     }
 
     const round = (value: number) => Math.round(value * 100) / 100;
+
+    // 最高分/最低分：分数并列时给出条数与样本，点开卡片能直接看到是哪几条
+    const buildExtreme = (target: number | null): AssessmentExtreme | null => {
+      if (target === null) return null;
+      const matched = rows.filter((row) => Math.abs(row.score - target) < 0.005);
+      return { score: target, count: matched.length, sample: matched.slice(0, 50) };
+    };
+    const maxScore = totalCount === 0 ? 0 : Math.max(...rows.map((row) => row.score));
+    const minScore = totalCount === 0 ? 0 : Math.min(...rows.map((row) => row.score));
+
     return {
       totalCount,
       supplierCount: supplierSet.size,
       cityCount: citySet.size,
       projectCount: projectSet.size,
       avgScore: totalCount === 0 ? 0 : round(scoreSum / totalCount),
-      maxScore: totalCount === 0 ? 0 : Math.max(...rows.map((row) => row.score)),
-      minScore: totalCount === 0 ? 0 : Math.min(...rows.map((row) => row.score)),
+      maxScore,
+      minScore,
+      extremes: {
+        max: totalCount === 0 ? null : buildExtreme(maxScore),
+        min: totalCount === 0 ? null : buildExtreme(minScore),
+      },
       onlineCount: rows.filter((row) => row.evalMethod === 'online').length,
       offlineCount: rows.filter((row) => row.evalMethod === 'offline').length,
       importedCount: rows.filter((row) => row.source === 'import').length,

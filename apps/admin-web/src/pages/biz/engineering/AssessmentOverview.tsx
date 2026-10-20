@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Col, Empty, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Button, Card, Col, Drawer, Empty, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { exportPageRows } from '@/utils/page-export-core';
 import {
@@ -68,6 +68,8 @@ export default function AssessmentOverview() {
   const [loading, setLoading] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /** 最高分/最低分卡片的钻取抽屉：max / min / null */
+  const [extremeOpen, setExtremeOpen] = useState<'max' | 'min' | null>(null);
   /** 请求序号：只接受最后一次请求结果，避免慢响应覆盖新筛选 */
   const seqRef = useRef(0);
 
@@ -241,24 +243,46 @@ export default function AssessmentOverview() {
       </Card>
 
       <Row gutter={12} style={{ marginBottom: 12 }}>
-        <Col xs={12} md={4}>
+        <Col xs={12} md={6}>
           <Card size="small"><Statistic title="评价记录" value={summary?.totalCount ?? 0} loading={summaryLoading} suffix="条" /></Card>
         </Col>
-        <Col xs={12} md={4}>
+        <Col xs={12} md={6}>
           <Card size="small"><Statistic title="供应商" value={summary?.supplierCount ?? 0} loading={summaryLoading} suffix="家" /></Card>
         </Col>
-        <Col xs={12} md={4}>
+        <Col xs={12} md={6}>
           <Card size="small"><Statistic title="覆盖地市" value={summary?.cityCount ?? 0} loading={summaryLoading} suffix="个" /></Card>
         </Col>
-        <Col xs={12} md={4}>
+        <Col xs={12} md={6}>
           <Card size="small"><Statistic title="采购项目" value={summary?.projectCount ?? 0} loading={summaryLoading} suffix="个" /></Card>
         </Col>
-        <Col xs={12} md={4}>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 12 }}>
+        <Col xs={12} md={8}>
           <Card size="small"><Statistic title="平均分" value={summary?.avgScore ?? 0} precision={2} loading={summaryLoading} /></Card>
         </Col>
-        <Col xs={12} md={4}>
-          <Card size="small">
-            <Statistic title="最低分" value={summary?.minScore ?? 0} precision={2} loading={summaryLoading} valueStyle={{ color: (summary?.minScore ?? 100) < 90 ? '#cf1322' : undefined }} />
+        <Col xs={12} md={8}>
+          <Card
+            size="small" hoverable style={{ cursor: 'pointer' }}
+            onClick={() => setExtremeOpen('max')}
+          >
+            <Statistic
+              title={<span>最高分 <Text type="secondary" style={{ fontSize: 12 }}>点击查看记录</Text></span>}
+              value={summary?.maxScore ?? 0} precision={2} loading={summaryLoading}
+              valueStyle={{ color: '#237804', textDecoration: 'underline', textDecorationColor: '#91caff' }}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} md={8}>
+          <Card
+            size="small" hoverable style={{ cursor: 'pointer' }}
+            onClick={() => setExtremeOpen('min')}
+          >
+            <Statistic
+              title={<span>最低分 <Text type="secondary" style={{ fontSize: 12 }}>点击查看记录</Text></span>}
+              value={summary?.minScore ?? 0} precision={2} loading={summaryLoading}
+              valueStyle={{ color: (summary?.minScore ?? 100) < 90 ? '#cf1322' : '#173A53', textDecoration: 'underline', textDecorationColor: '#91caff' }}
+            />
           </Card>
         </Col>
       </Row>
@@ -329,6 +353,50 @@ export default function AssessmentOverview() {
           }}
         />
       </Card>
+
+      <Drawer
+        open={extremeOpen !== null}
+        onClose={() => setExtremeOpen(null)}
+        width={1020}
+        title={extremeOpen === 'max' ? '最高分记录' : '最低分记录'}
+        destroyOnHidden
+      >
+        {(() => {
+          const extreme = extremeOpen === 'max' ? summary?.extremes.max : summary?.extremes.min;
+          if (!extreme) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选下暂无数据" />;
+          return (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Text>
+                {extremeOpen === 'max' ? '最高分' : '最低分'} <Text strong style={{ fontSize: 18 }}>{extreme.score.toFixed(2)}</Text>
+                ，当前筛选下共 <Text strong>{extreme.count}</Text> 条{extreme.count > extreme.sample.length ? `，下表显示前 ${extreme.sample.length} 条` : ''}
+              </Text>
+              <Table
+                rowKey="id"
+                size="small"
+                dataSource={extreme.sample}
+                pagination={false}
+                columns={[
+                  { title: '后评价月份', dataIndex: 'evalMonth', key: 'evalMonth', width: 95, render: (value: string) => formatMonth(value) },
+                  {
+                    title: '采购项目名称', dataIndex: 'projectName', key: 'projectName', ellipsis: true,
+                    render: (value: string) => (
+                      <a onClick={() => { setFilter((prev) => ({ ...prev, projectName: value })); setPage(1); setExtremeOpen(null); }}>
+                        {value}
+                      </a>
+                    ),
+                  },
+                  { title: '地市', dataIndex: 'cityName', key: 'cityName', width: 105, render: (value: string) => value || '省本部/未匹配' },
+                  { title: '供应商', dataIndex: 'supplierName', key: 'supplierName', width: 190, ellipsis: true },
+                  { title: '分数', dataIndex: 'score', key: 'score', width: 75, align: 'right' as const, render: (value: number) => value.toFixed(2) },
+                  { title: '方式', dataIndex: 'evalMethod', key: 'evalMethod', width: 60, render: (value: string) => value === 'offline' ? '线下' : '线上' },
+                  { title: '来源', dataIndex: 'source', key: 'source', width: 60, render: (value: string) => value === 'offline' ? '填报' : '导入' },
+                ]}
+              />
+              <Text type="secondary">点项目名称可把主表筛到该项目，查看它的全部记录。</Text>
+            </Space>
+          );
+        })()}
+      </Drawer>
     </div>
   );
 }
