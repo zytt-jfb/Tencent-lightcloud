@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Descriptions, Empty, Popconfirm, Space, Spin, Table, Tag, Typography, Upload, message } from 'antd';
+import { Alert, Button, Card, Checkbox, Descriptions, Empty, Popconfirm, Space, Spin, Table, Tag, Typography, Upload, message } from 'antd';
 import { DownloadOutlined, InboxOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { writeWorkbook } from '@/utils/page-export-core';
 import {
@@ -34,6 +34,8 @@ export default function AssessmentImport() {
   const [preview, setPreview] = useState<AssessmentPreview | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
+  /** 存在未匹配地市时，必须勾选确认才能入库（避免半残数据静默进入统计） */
+  const [unmatchedAck, setUnmatchedAck] = useState(false);
   const [importing, setImporting] = useState(false);
 
   const loadBatches = useCallback(async () => {
@@ -58,6 +60,7 @@ export default function AssessmentImport() {
       const result = await assessmentImportPreview(file);
       setPreview(result);
       setPendingFile(file);
+      setUnmatchedAck(false);
     } catch (error: unknown) {
       const detail = (error as { response?: { data?: { message?: string | string[] } } }).response?.data?.message;
       message.error(Array.isArray(detail) ? detail.join('；') : (detail ?? '文件解析失败'));
@@ -184,7 +187,11 @@ export default function AssessmentImport() {
           extra={
             <Space>
               <Button onClick={() => { setPreview(null); setPendingFile(null); }}>取消</Button>
-              <Button type="primary" icon={<UploadOutlined />} loading={importing} disabled={validRows === 0} onClick={() => void handleCommit()}>
+              <Button
+                type="primary" icon={<UploadOutlined />} loading={importing}
+                disabled={validRows === 0 || ((preview?.unmatchedCities.length ?? 0) > 0 && !unmatchedAck)}
+                onClick={() => void handleCommit()}
+              >
                 确认导入（{validRows} 行）
               </Button>
             </Space>
@@ -207,8 +214,15 @@ export default function AssessmentImport() {
           {preview.unmatchedCities.length > 0 && (
             <Alert
               type="warning" showIcon style={{ marginBottom: 12 }}
-              message="以下地市未匹配到城市字典，将按原文保留（不影响入库，但按地市筛选时无法归组）"
-              description={preview.unmatchedCities.join('、')}
+              message={`有 ${preview.unmatchedCities.length} 个地市未匹配到城市字典，这些行不会归入地市统计`}
+              description={(
+                <>
+                  <div style={{ marginBottom: 8 }}>{preview.unmatchedCities.join('、')}</div>
+                  <Checkbox checked={unmatchedAck} onChange={(event) => setUnmatchedAck(event.target.checked)}>
+                    我已确认，仍要导入（建议先去「系统设置 → 省市设置」补齐这些地市，再重新上传）
+                  </Checkbox>
+                </>
+              )}
             />
           )}
           {preview.failedRows > 0 && (

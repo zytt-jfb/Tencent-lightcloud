@@ -781,6 +781,13 @@ async function inspectState(version) {
       adapter.indexExists('biz_assessment_record', 'uk_biz_assessment_dedup'),
     ]);
   }
+  if (version === '041_biz_liaoning_regions') {
+    // 只检查本迁移新增的数据：辽宁省 + 14 个地市
+    if (!await adapter.tableExists('biz_provinces') || !await adapter.tableExists('biz_cities')) return 'empty';
+    const provinceOk = await adapter.scalar("SELECT COUNT(*) FROM biz_provinces WHERE code = '210000'").then((count) => count === 1);
+    if (!provinceOk) return 'empty';
+    return await adapter.scalar("SELECT COUNT(*) FROM biz_cities WHERE province_id = '00000000-0000-4000-8000-000000000031'").then((count) => count === 14 ? 'satisfied' : 'empty');
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 
