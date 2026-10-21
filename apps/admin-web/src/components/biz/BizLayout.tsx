@@ -246,7 +246,16 @@ export default function BizLayout() {
           ? 'maintenance-assets'
         : undefined;
   const [openKeys, setOpenKeys] = useState<string[]>([]);
-  const visibleOpenKeys = [...new Set([...openKeys, ...(activeGroupKey ? [activeGroupKey] : [])])];
+  /**
+   * 只在「路由切到另一个分组」时自动展开该分组。
+   * 不能像早先那样把 activeGroupKey 并进渲染值（visibleOpenKeys = state ∪ activeGroupKey）：
+   * 那样用户点收起时，onOpenChange 会把 key 从 state 里删掉，但下一次渲染又被并回来，
+   * 表现就是箭头点了没反应。现在收起状态完全由 state 决定，路由变化才补展开。
+   */
+  useEffect(() => {
+    if (!activeGroupKey) return;
+    setOpenKeys((prev) => (prev.includes(activeGroupKey) ? prev : [...prev, activeGroupKey]));
+  }, [activeGroupKey]);
 
   // 一级、二级门户独立呈现模块卡片，进入具体模块后才显示业务侧栏。
   const isModulePortal = location.pathname === '/biz/portal';
@@ -259,7 +268,7 @@ export default function BizLayout() {
       style={{ borderInlineEnd: 'none' }}
       selectedKeys={selectedKey ? [String(selectedKey)] : []}
       items={isSystemModule ? systemItems : isEngineeringModule ? engineeringItems : isMaintenanceModule ? standaloneMaintenanceItems : (isMobile ? mobileMenuItems : menuItems)}
-      openKeys={isMobile ? undefined : visibleOpenKeys}
+      openKeys={isMobile ? undefined : openKeys}
       onOpenChange={isMobile ? undefined : (keys) => setOpenKeys(keys as string[])}
       onClick={({ key }) => { if (String(key).startsWith('/biz/')) navigate(String(key)); if (isMobile) setMobileOpen(false); }}
     />
