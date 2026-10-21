@@ -227,7 +227,7 @@ export class MaintenanceOverviewService {
    * 筛选项字典：区县/地市/公司下拉用服务端 distinct。
    * 改造前区县下拉取的是「当前页 50 条」，翻页后选项会变、选不到别的区县。
    */
-  async facets(kind: AssetKind, auth: BizAuthContext): Promise<{ provinces: string[]; cities: string[]; companies: string[]; regions: string[] }> {
+  async facets(kind: AssetKind, auth: BizAuthContext, filter: { orgProvince?: string; orgCity?: string } = {}): Promise<{ provinces: string[]; cities: string[]; companies: string[]; regions: string[] }> {
     const repo = this.repoOf(kind);
     const qb = repo.createQueryBuilder('t')
       .select('t.orgProvince', 'province')
@@ -239,6 +239,10 @@ export class MaintenanceOverviewService {
       .addGroupBy('t.orgCity')
       .addGroupBy('t.orgCompany')
       .addGroupBy('t.orgRegion');
+    // 级联筛选：选中省份后只统计该省，选中地市后只统计该市 —— 否则区县下拉是全省全集，
+    // 选了「济宁市」还能看到「滕州市」，用户会选出一个空结果
+    if (filter.orgProvince?.trim()) qb.andWhere('t.orgProvince LIKE :fProvince', { fProvince: `%${filter.orgProvince.trim()}%` });
+    if (filter.orgCity?.trim()) qb.andWhere('t.orgCity LIKE :fCity', { fCity: `%${filter.orgCity.trim()}%` });
     this.scope.apply(qb, await this.scope.resolve(auth), 't');
     const rows = await qb.getRawMany<{ province: string | null; city: string | null; company: string | null; region: string | null }>();
     const collect = (pick: (row: { province: string | null; city: string | null; company: string | null; region: string | null }) => string | null) =>

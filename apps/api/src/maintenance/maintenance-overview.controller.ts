@@ -29,9 +29,14 @@ export class MaintenanceOverviewController {
     return this.service.build(windowDays === undefined ? undefined : Number(windowDays), auth);
   }
 
-  /** 区县 / 地市 / 公司下拉的服务端 distinct（替代原先取「当前页 50 条」的做法） */
+  /** 区县 / 地市 / 公司下拉的服务端 distinct（替代原先取「当前页 50 条」的做法）；传省市可按级联收敛 */
   @Get(':kind/facets')
-  facets(@Param('kind') kind: string, @BizAuthUser() auth: BizAuthContext) {
-    return this.service.facets(assertKind(kind), auth);
+  facets(
+    @Param('kind') kind: string,
+    @BizAuthUser() auth: BizAuthContext,
+    @Query('orgProvince') orgProvince?: string,
+    @Query('orgCity') orgCity?: string,
+  ) {
+    return this.service.facets(assertKind(kind), auth, { orgProvince, orgCity });
   }
 }

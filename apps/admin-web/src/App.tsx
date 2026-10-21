@@ -27,7 +27,9 @@ const ImportJobs = lazy(() => import('@/pages/ImportJobs'));
 const CityReporting = lazy(() => import('@/pages/CityReporting'));
 const BizLogin = lazy(() => import('@/pages/biz/BizLogin'));
 const BizPortal = lazy(() => import('@/pages/biz/BizPortal'));
-const MaintenanceHome = lazy(() => import('@/pages/biz/maintenance/MaintenanceHome'));
+const MaintenancePersonnelList = lazy(() => import('@/pages/biz/maintenance/PersonnelList'));
+const MaintenanceVehicleList = lazy(() => import('@/pages/biz/maintenance/VehicleList'));
+const MaintenanceGeneratorList = lazy(() => import('@/pages/biz/maintenance/GeneratorList'));
 const MaintenanceOverview = lazy(() => import('@/pages/biz/maintenance/MaintenanceOverview'));
 const PerformanceMonthlyScore = lazy(() => import('@/pages/biz/performance/MonthlyScore'));
 const PerformanceOverview = lazy(() => import('@/pages/biz/performance/Overview'));
@@ -151,9 +153,9 @@ export default function App() {
       <Route path="maintenance/overview" element={<Suspense fallback={<PageLoading />}><MaintenanceOverview /></Suspense>} />
       <Route path="maintenance/documents" element={<Navigate to="/biz/maintenance/personnel" replace />} />
       <Route path="maintenance/records" element={<Navigate to="/biz/maintenance/personnel" replace />} />
-      <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
-      <Route path="maintenance/vehicles" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
-      <Route path="maintenance/generators" element={<Suspense fallback={<PageLoading />}><MaintenanceHome /></Suspense>} />
+      <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenancePersonnelList /></Suspense>} />
+      <Route path="maintenance/vehicles" element={<Suspense fallback={<PageLoading />}><MaintenanceVehicleList /></Suspense>} />
+      <Route path="maintenance/generators" element={<Suspense fallback={<PageLoading />}><MaintenanceGeneratorList /></Suspense>} />
       <Route path="engineering" element={<Navigate to="/biz/engineering/assessment" replace />} />
       <Route path="engineering/assessment" element={<Suspense fallback={<PageLoading />}><AssessmentOverview /></Suspense>} />
       <Route path="engineering/assessment/detail" element={<Suspense fallback={<PageLoading />}><SupplierScorecardPage /></Suspense>} />

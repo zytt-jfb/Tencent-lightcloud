@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import type { SelectQueryBuilder } from 'typeorm';
@@ -69,5 +69,23 @@ export class MaintenanceScopeService {
       return qb.andWhere(`(${alias}.orgCity IN (:...scopeCityNames) OR ${alias}.orgProvince IN (:...scopeCityNames))`, { scopeCityNames: scope.cityNames });
     }
     return qb.andWhere(`${alias}.orgCity IN (:...scopeCityNames)`, { scopeCityNames: scope.cityNames });
+  }
+
+  /**
+   * 写操作的范围校验。
+   *
+   * 权限点（maintenance.data.write）只回答「这个人能不能改维护数据」，
+   * 回答不了「能改哪个地市的」。两者必须叠加：否则地市账号虽然不能进别的菜单，
+   * 仍可以直接 PATCH 外市记录的 id 把数据改掉（原实现就是这样，create/update 连登录后的
+   * 权限点都没校验）。
+   */
+  async assertWritable(auth: BizAuthContext, orgCity: string | null | undefined): Promise<void> {
+    const scope = await this.resolve(auth);
+    if (scope.allowAll) return;
+    const city = String(orgCity ?? '').trim();
+    if (!city) throw new ForbiddenException('缺少地市，无法判断数据归属');
+    // cityNames 同时含「东营市」与「东营」两种写法，这里按别名表逐一比对
+    const allowed = scope.cityNames.some((name) => cityAliases(city).includes(name) || name === city);
+    if (!allowed) throw new ForbiddenException(`无权维护「${city}」的数据，当前账号范围：${scope.cityNames.join('、') || '无'}`);
   }
 }

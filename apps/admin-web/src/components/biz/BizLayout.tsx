@@ -169,12 +169,6 @@ export default function BizLayout() {
     { key: '/biz/orders', label: '订单管理', icon: <InboxOutlined />, permission: 'operation.order.upload' },
     { key: '/biz/offline-completions', label: '线下完工', icon: <TeamOutlined />, permission: 'operation.completion.read' },
   ], permSet, isSuper, me?.roleCode);
-  const maintenanceItems: NonNullable<MenuProps['items']> = [
-    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined /> },
-    { key: '/biz/maintenance/vehicles', label: '资产管理', icon: <InboxOutlined /> },
-    { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined /> },
-  ];
-
   // 工程管理：一级抽屉「后评估管理」，下辖概览 / 数据导入 / 线下填报
   const assessmentItems = filterByPermission([
     { key: '/biz/engineering/assessment', label: '后评估概览', permission: 'assessment.overview.read' },
@@ -208,9 +202,9 @@ export default function BizLayout() {
    *   performance.upload.read    → 绩效上传（默认只有超管）
    */
   const maintenanceLeaves = filterByPermission([
-    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined />, permission: 'maintenance.operation.enter' },
-    { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined />, permission: 'maintenance.operation.enter' },
-    { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined />, permission: 'maintenance.operation.enter' },
+    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined />, permission: 'maintenance.personnel.enter' },
+    { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined />, permission: 'maintenance.asset.enter' },
+    { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined />, permission: 'maintenance.asset.enter' },
   ], permSet, isSuper, me?.roleCode) as Array<{ key: string; label: string; icon?: React.ReactNode }>;
   const performanceScoreItems = filterByPermission([
     { key: '/biz/performance/monthly-score', label: '月度分数', permission: 'performance.overview.read' },

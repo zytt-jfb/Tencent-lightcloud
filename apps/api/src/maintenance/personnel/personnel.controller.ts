@@ -23,13 +23,12 @@ import { BizAuthContext } from '../../rbac/rbac.service';
 export class MaintenancePersonnelController {
   constructor(private readonly service: MaintenancePersonnelService, private readonly documents: MaintenanceDocumentService) {}
 
-  @Get()
-  list(@Query() query: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext): Promise<MaintenancePersonnelListResponse> {
+  @Get() @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.personnel.enter') list(@Query() query: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext): Promise<MaintenancePersonnelListResponse> {
     return this.service.list(query, auth);
   }
 
-  @Post() create(@Body() dto: CreatePersonnelDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdatePersonnelDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
+  @Post() @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.data.write') create(@Body() dto: CreatePersonnelDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
+  @Patch(':id') @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.data.write') update(@Param('id') id: string, @Body() dto: UpdatePersonnelDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
   @Get(':id/documents') listDocuments(@Param('id') id: string, @BizAuthUser() auth: BizAuthContext) { return this.service.listDocuments(id, auth); }
   @Get('documents/pending') listPendingDocuments(@BizAuthUser() auth: BizAuthContext) { return this.documents.listPending('personnel', auth); }
   @Post('documents/upload') @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } }))

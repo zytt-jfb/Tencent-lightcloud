@@ -19,9 +19,9 @@ import { MaintenanceGeneratorService } from './generator.service';
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class MaintenanceGeneratorController {
   constructor(private readonly service: MaintenanceGeneratorService, private readonly documents: MaintenanceDocumentService) {}
-  @Get() list(@Query() q: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext) { return this.service.list(q, auth); }
-  @Post() create(@Body() dto: CreateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
-  @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
+  @Get() @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.asset.enter') list(@Query() q: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext) { return this.service.list(q, auth); }
+  @Post() @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.data.write') create(@Body() dto: CreateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
+  @Patch(':id') @UseGuards(BizPermissionsGuard) @BizPermissions('maintenance.data.write') update(@Param('id') id: string, @Body() dto: UpdateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
   @Get(':id/documents') listDocuments(@Param('id') id: string, @BizAuthUser() auth: BizAuthContext) { return this.service.listDocuments(id, auth); }
   @Get('documents/pending') listPendingDocuments(@BizAuthUser() auth: BizAuthContext) { return this.documents.listPending('generators', auth); }
   @Post('documents/upload') @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } }))

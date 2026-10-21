@@ -819,6 +819,19 @@ async function inspectState(version) {
     );
     return Number(grantCount) >= 5 ? 'satisfied' : 'empty';
   }
+  if (version === '046_maintenance_data_write') {
+    // 判据：写权限点存在 + 6 条授权（data.write×2、personnel.enter×2、asset.enter×2），
+    // super_admin 走通配不检查，contract_manager 按设计不授予
+    if (!await adapter.tableExists('biz_permissions') || !await adapter.tableExists('biz_role_permissions')) return 'empty';
+    const permissionCount = await adapter.scalar(
+      "SELECT COUNT(*) FROM biz_permissions WHERE code IN ('maintenance.data.write','maintenance.personnel.enter','maintenance.asset.enter')",
+    );
+    if (Number(permissionCount) < 3) return 'empty';
+    const grantCount = await adapter.scalar(
+      "SELECT COUNT(*) FROM biz_role_permissions WHERE role_id IN ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000004') AND permission_code IN ('maintenance.data.write','maintenance.personnel.enter','maintenance.asset.enter')",
+    );
+    return Number(grantCount) >= 6 ? 'satisfied' : 'empty';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

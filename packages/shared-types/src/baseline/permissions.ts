@@ -30,6 +30,8 @@ export const BizPermissionCode = {
   MAINTENANCE_ASSET_ENTER: 'maintenance.asset.enter',
   MAINTENANCE_PERSONNEL_ENTER: 'maintenance.personnel.enter',
   MAINTENANCE_DATA_DELETE: 'maintenance.data.delete',
+  /** 新增 / 编辑维护数据。只回答「能不能写」，能写哪个地市由账号数据范围二次约束 */
+  MAINTENANCE_DATA_WRITE: 'maintenance.data.write',
   /** 身份证 / 手机号等敏感字段的明文查看（未授予者读到掩码） */
   MAINTENANCE_SENSITIVE_READ: 'maintenance.sensitive.read',
   // 维护管理 - 月度考核（与后评估是两套数据、两套算法，权限点也分开）
@@ -108,6 +110,9 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.PORTAL_ENGINEERING_ENTER,
     BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
     BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
+    BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
+    BizPermissionCode.MAINTENANCE_ASSET_ENTER,
+    BizPermissionCode.MAINTENANCE_DATA_WRITE,
     BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
     BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_IMPORT_READ,
@@ -190,6 +195,9 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
     BizPermissionCode.PORTAL_ENGINEERING_ENTER,
     BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
+    BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
+    BizPermissionCode.MAINTENANCE_ASSET_ENTER,
+    BizPermissionCode.MAINTENANCE_DATA_WRITE,
     BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
     BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_ENTRY_READ,

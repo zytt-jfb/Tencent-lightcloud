@@ -24,9 +24,46 @@ export class MaintenancePersonnelService {
   /** 身份证 / 手机号明文需要 maintenance.sensitive.read（默认只给 admin） */
   private canReadSensitive(auth: BizAuthContext) { return auth.isSuperAdmin || auth.permissionCodes.has('maintenance.sensitive.read'); }
 
-  async create(dto: CreatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as CreatePersonnelDto & { documentFileIds?: string[] }; const entity = this.personnelRepository.create({ ...fields, personnelCode: requireText(dto.personnelCode, '人员编号'), name: requireText(dto.name, '姓名'), id: newId(), status: 'active', deletedAt: null }); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { await this.personnelRepository.delete(entity.id).catch(() => undefined); return conflict(error); } }
-  async update(id: string, dto: UpdatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as UpdatePersonnelDto & { documentFileIds?: string[] }; const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); // 掩码值不能覆盖真值：无权限账号回传的是 3701****1234，直接写会把库里真身份证写坏
-    const patch = fields as Record<string, unknown>; for (const key of ['idCard', 'mobile']) if (isMaskedValue(patch[key])) delete patch[key]; Object.assign(entity, fields); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { return conflict(error); } }
+  async create(dto: CreatePersonnelDto, auth: BizAuthContext) {
+    const { documentFileIds = [], ...fields } = dto as CreatePersonnelDto & { documentFileIds?: string[] };
+    // 权限点管「能不能写」，数据范围管「能写哪个地市」，两者必须同时成立
+    await this.scope.assertWritable(auth, (fields as { orgCity?: string | null }).orgCity);
+    const entity = this.personnelRepository.create({
+      ...fields,
+      personnelCode: requireText(dto.personnelCode, '人员编号'),
+      name: requireText(dto.name, '姓名'),
+      id: newId(),
+      status: 'active',
+      deletedAt: null,
+    });
+    try {
+      const saved = await this.personnelRepository.save(entity);
+      await this.documents.attach('personnel', saved.id, documentFileIds, auth);
+      return saved;
+    } catch (error) {
+      await this.personnelRepository.delete(entity.id).catch(() => undefined);
+      return conflict(error);
+    }
+  }
+
+  async update(id: string, dto: UpdatePersonnelDto, auth: BizAuthContext) {
+    const { documentFileIds = [], ...fields } = dto as UpdatePersonnelDto & { documentFileIds?: string[] };
+    const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员');
+    await this.scope.assertWritable(auth, entity.orgCity);
+    await this.scope.assertWritable(auth, (fields as { orgCity?: string | null }).orgCity ?? entity.orgCity);
+    // 掩码值不能覆盖真值：无权限账号回传的是 3701****1234，直接写会把库里真身份证写坏
+    const patch = fields as Record<string, unknown>;
+    for (const key of ['idCard', 'mobile']) if (isMaskedValue(patch[key])) delete patch[key];
+    Object.assign(entity, fields);
+    try {
+      const saved = await this.personnelRepository.save(entity);
+      await this.documents.attach('personnel', saved.id, documentFileIds, auth);
+      return saved;
+    } catch (error) {
+      return conflict(error);
+    }
+  }
+
   listDocuments(id: string, auth: BizAuthContext) { return this.documents.list('personnel', id, auth); }
   async remove(id: string) { const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); entity.status = 'inactive'; entity.deletedAt = new Date(); await this.personnelRepository.save(entity); return { id, deleted: true }; }
 

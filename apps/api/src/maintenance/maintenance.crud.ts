@@ -6,9 +6,25 @@ import type { MaintenanceListQuery } from '@biz-reporting/shared-types';
 export function pageOf(query: MaintenanceListQuery) {
   return { page: Math.max(1, Number(query.page) || 1), pageSize: Math.min(100, Math.max(1, Number(query.pageSize) || 20)) };
 }
-export function baseQuery<T extends object>(repo: Repository<T>, alias: string, query: MaintenanceListQuery): SelectQueryBuilder<T> {
+/**
+ * 关键词列**必须按实体传入**。
+ *
+ * 原实现把五张表的列名（name / personnelCode / plateNumber / generatorCode / account）硬拼进同一段 SQL，
+ * 但车辆表没有 name、personnelCode、account，油机表没有 name、plateNumber、account ——
+ * MySQL 直接报 1054，导致 `vehicles?keyword=鲁B` 与 `generators?keyword=机` 全是 500。
+ * 三张表结构不同，共用 SQL 的前提是列名由调用方给。
+ */
+export function baseQuery<T extends object>(
+  repo: Repository<T>,
+  alias: string,
+  query: MaintenanceListQuery,
+  keywordColumns: readonly string[],
+): SelectQueryBuilder<T> {
   const qb = repo.createQueryBuilder(alias).where(`${alias}.deletedAt IS NULL`);
-  if (query.keyword?.trim()) qb.andWhere(`(${alias}.name LIKE :keyword OR ${alias}.personnelCode LIKE :keyword OR ${alias}.plateNumber LIKE :keyword OR ${alias}.generatorCode LIKE :keyword OR ${alias}.account LIKE :keyword)`, { keyword: `%${query.keyword.trim()}%` });
+  if (query.keyword?.trim() && keywordColumns.length) {
+    const clause = keywordColumns.map((column) => `${alias}.${column} LIKE :keyword`).join(' OR ');
+    qb.andWhere(`(${clause})`, { keyword: `%${query.keyword.trim()}%` });
+  }
   if (query.orgProvince) qb.andWhere(`${alias}.orgProvince LIKE :orgProvince`, { orgProvince: `%${query.orgProvince}%` });
   if (query.orgCity) qb.andWhere(`${alias}.orgCity LIKE :orgCity`, { orgCity: `%${query.orgCity}%` });
   if (query.orgCompany) qb.andWhere(`${alias}.orgCompany LIKE :orgCompany`, { orgCompany: `%${query.orgCompany}%` });
