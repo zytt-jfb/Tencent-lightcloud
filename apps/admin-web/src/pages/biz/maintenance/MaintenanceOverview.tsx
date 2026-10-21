@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, Col, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, message } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import { maintenanceOverview, type MaintenanceOverview as OverviewData, type MaintenanceReminder } from '@/api/maintenance.api';
 
 const kinds = ['personnel', 'vehicles', 'generators'] as const;
@@ -12,6 +13,7 @@ const labels = { personnel: '人员', vehicles: '车辆', generators: '油机' }
  * 到期提醒还恒为空（后端从不返回 expirations 字段）。现在一个请求出全部结果。
  */
 export default function MaintenanceOverview() {
+  const navigate = useNavigate();
   const [data, setData] = useState<OverviewData>();
   const [loading, setLoading] = useState(false);
   const [windowDays, setWindowDays] = useState(30);
@@ -53,10 +55,14 @@ export default function MaintenanceOverview() {
           )}
         </Col>
       </Row>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={5} style={{ margin: 0 }}>到期提醒</Typography.Title>
         <Select value={windowDays} onChange={setWindowDays} options={[7, 30, 60, 90].map((value) => ({ value, label: `${value}天内到期` }))} />
         <Typography.Text type="secondary">统计基准日 {data?.today ?? '-'}：已逾期不设下限，提前 {windowDays} 天预警</Typography.Text>
+        {/* 总览只做「有多少」，逐条处理去台账页：那边能按组织/类别筛选、能直接跳去补录 */}
+        <Button type="link" style={{ padding: 0 }} onClick={() => navigate('/biz/maintenance/expiry')}>
+          查看完整到期台账<RightOutlined />
+        </Button>
       </Space>
       {/* 分类小计：车辆/人员/油机的待办口径不同，先看这张表再往下拉明细 */}
       <Table
@@ -77,10 +83,10 @@ export default function MaintenanceOverview() {
       <Table<MaintenanceReminder>
         loading={loading}
         rowKey="id"
-        dataSource={reminders}
+        // 这里只做预览：完整清单（含组织/状态筛选、去补录）在「到期台账」页
+        dataSource={reminders.slice(0, 20)}
         scroll={{ x: 900 }}
-        // 生产环境到期项可能有几百条，默认每页 50 条；不设虚拟滚动，先把总量压到一个接口里
-        pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200], showTotal: (total) => `共 ${total} 条待办` }}
+        pagination={false}
         locale={{ emptyText: '暂无已登记的到期提醒' }}
         columns={[
           { title: '类别', dataIndex: 'category', width: 80 },
@@ -101,6 +107,11 @@ export default function MaintenanceOverview() {
           { title: '所属组织', dataIndex: 'region', ellipsis: true },
         ]}
       />
+      {reminders.length > 20 && (
+        <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+          共 {reminders.length} 条待办，此处仅列前 20 条（按逾期天数排序）。逐条处理请进「到期台账」。
+        </Typography.Text>
+      )}
       <Typography.Title level={5} style={{ marginTop: 24 }}>组织汇总</Typography.Title>
       <Table
         loading={loading}

@@ -31,6 +31,7 @@ const MaintenancePersonnelList = lazy(() => import('@/pages/biz/maintenance/Pers
 const MaintenanceVehicleList = lazy(() => import('@/pages/biz/maintenance/VehicleList'));
 const MaintenanceGeneratorList = lazy(() => import('@/pages/biz/maintenance/GeneratorList'));
 const MaintenanceOverview = lazy(() => import('@/pages/biz/maintenance/MaintenanceOverview'));
+const MaintenanceExpiryLedger = lazy(() => import('@/pages/biz/maintenance/ExpiryLedger'));
 const PerformanceMonthlyScore = lazy(() => import('@/pages/biz/performance/MonthlyScore'));
 const PerformanceOverview = lazy(() => import('@/pages/biz/performance/Overview'));
 const PerformanceUpload = lazy(() => import('@/pages/biz/performance/Upload'));
@@ -151,6 +152,7 @@ export default function App() {
       <Route path="system" element={<Navigate to="/biz/settings" replace />} />
       <Route path="maintenance" element={<Navigate to="/biz/maintenance/overview" replace />} />
       <Route path="maintenance/overview" element={<Suspense fallback={<PageLoading />}><MaintenanceOverview /></Suspense>} />
+      <Route path="maintenance/expiry" element={<Suspense fallback={<PageLoading />}><MaintenanceExpiryLedger /></Suspense>} />
       <Route path="maintenance/documents" element={<Navigate to="/biz/maintenance/personnel" replace />} />
       <Route path="maintenance/records" element={<Navigate to="/biz/maintenance/personnel" replace />} />
       <Route path="maintenance/personnel" element={<Suspense fallback={<PageLoading />}><MaintenancePersonnelList /></Suspense>} />

@@ -7,6 +7,8 @@ import type {
 } from './maintenance';
 
 export interface MaintenanceListQuery extends PaginationParams {
+  /** 精确按记录 id 过滤：到期台账「去补录」跳转时用来取那一条，避免目标记录不在当前页 */
+  id?: string;
   keyword?: string;
   orgProvince?: string;
   orgCity?: string;

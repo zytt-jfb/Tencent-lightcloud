@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Avatar, Button, Drawer, Dropdown, Form, Input, Layout, Menu, Modal, Result, Space, Spin, Typography, message, type MenuProps } from 'antd';
 import {
-  ApartmentOutlined, BarChartOutlined, FileTextOutlined, InboxOutlined, SettingOutlined,
+  ApartmentOutlined, BarChartOutlined, ClockCircleOutlined, FileTextOutlined, InboxOutlined, SettingOutlined,
   BellOutlined, DeleteOutlined, HomeOutlined, KeyOutlined, TeamOutlined, UserOutlined, WalletOutlined, MenuOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
@@ -218,6 +218,8 @@ export default function BizLayout() {
   const performanceLeaves = [...performanceScoreItems, ...performanceUploadItems];
   const standaloneMaintenanceItems: MenuProps['items'] = [
     { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
+    // 到期台账放在总览下面：总览回答「有多少」，台账回答「是哪几条、点进去改哪里」
+    { key: '/biz/maintenance/expiry', label: '到期台账', icon: <ClockCircleOutlined /> },
     ...personnelLeaf,
     ...(assetLeaves.length > 0 ? [{ key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: assetLeaves }] : []),
     ...(performanceLeaves.length > 0 ? [{ key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: performanceLeaves }] : []),
@@ -234,7 +236,7 @@ export default function BizLayout() {
     '/biz/analysis/overruns', '/biz/analysis/cities', '/biz/analysis/trend', '/biz/analysis',
     '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
     '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
-    '/biz/maintenance/overview', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
+    '/biz/maintenance/overview', '/biz/maintenance/expiry', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
     '/biz/engineering/assessment/import', '/biz/engineering/assessment/entry', '/biz/engineering/assessment/detail', '/biz/engineering/assessment',
   ];
   const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
@@ -251,7 +253,9 @@ export default function BizLayout() {
           ? 'assessment'
         : location.pathname.startsWith('/biz/performance')
           ? 'performance'
-        : location.pathname.startsWith('/biz/maintenance')
+        : /^\/biz\/maintenance\/(vehicles|generators)$/.test(location.pathname)
+          // 只有车辆/油机在「资产管理」分组里；总览、到期台账、人员都是顶层叶子，
+          // 原先对所有 /biz/maintenance 都展开资产管理，点「到期台账」会顺带弹开无关分组
           ? 'maintenance-assets'
         : undefined;
   const [openKeys, setOpenKeys] = useState<string[]>([]);

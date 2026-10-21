@@ -68,8 +68,16 @@ export interface MaintenanceReminder {
   kind: AssetKind;
   category: string;
   recordId: string;
+  /** 到期字段名，用于台账「去补录」跳转后定位到具体字段 */
+  field: string;
   name: string;
+  /** 展示用的组织全路径（省 / 市 / 区县 / 公司） */
   region: string;
+  /** 结构化组织字段：台账按省/市/区县筛选必须比对原始值，不能对拼好的字符串做匹配 */
+  orgProvince: string;
+  orgCity: string;
+  orgRegion: string;
+  orgCompany: string;
   title: string;
   /** 已解析出的标准日期（YYYY-MM-DD）；日期异常行为原始文本 */
   date: string;
@@ -77,6 +85,41 @@ export interface MaintenanceReminder {
   days: number | null;
   /** 日期字段无法解析（如「无」「2027-14-01」） */
   invalidDate: boolean;
+}
+
+/** 到期台账查询条件 */
+export interface ExpiryLedgerQuery {
+  kind?: string;
+  status?: string;
+  windowDays?: number;
+  orgProvince?: string;
+  orgCity?: string;
+  orgRegion?: string;
+  orgCompany?: string;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ExpiryLedgerResult {
+  today: string;
+  windowDays: number;
+  page: number;
+  pageSize: number;
+  /** 当前筛选（状态之外）命中的条数 */
+  total: number;
+  /**
+   * 状态分段计数：在「组织 + 类别 + 关键词」筛选之后、状态筛选之前统计，
+   * 这样切换状态页签时数字不会跳变（与列表页的做法一致）
+   */
+  counts: { expired: number; dueSoon: number; anomaly: number; pending: number };
+  byKind: Array<{ kind: AssetKind; category: string; expired: number; dueSoon: number; anomaly: number; total: number }>;
+  /**
+   * 区县下拉选项：取自「类别 + 省 + 市」筛选后的结果集（不受状态影响）。
+   * 台账跨三类资产，不能复用按 kind 的 facets 接口，否则区县会混入其他类别的空选项。
+   */
+  regions: string[];
+  items: MaintenanceReminder[];
 }
 
 export interface MaintenanceOrganizationRow {
@@ -160,13 +203,45 @@ function daysBetween(today: string, date: string): number {
   return Math.round((Date.UTC(dy, dm - 1, dd) - Date.UTC(ty, tm - 1, td)) / DAY_MS);
 }
 
-function regionOf(row: Record<string, unknown>): string {
+interface OrgParts {
+  province: string;
+  city: string;
+  region: string;
+  company: string;
+}
+
+/** 原始组织字段；GROUP BY 出来的列名是 province/city/...，实体查询出来的是 orgProvince/orgCity/...，两套都认 */
+function orgOf(row: Record<string, unknown>): OrgParts {
   const text = (key: string) => {
     const value = row[key];
     return value === null || value === undefined ? '' : String(value);
   };
-  const city = text('orgCity') || text('city');
-  return `${text('orgProvince') || text('province')} / ${city || '未填写地市'} / ${text('orgRegion') || text('region')} / ${text('orgCompany') || text('company')}`;
+  return {
+    province: text('orgProvince') || text('province'),
+    city: text('orgCity') || text('city'),
+    region: text('orgRegion') || text('region'),
+    company: text('orgCompany') || text('company'),
+  };
+}
+
+function regionOf(row: Record<string, unknown>): string {
+  const org = orgOf(row);
+  return `${org.province} / ${org.city || '未填写地市'} / ${org.region} / ${org.company}`;
+}
+
+/**
+ * 组织名后缀归一：库里「四川」与「四川省」并存，前端下拉传的是去后缀短名，
+ * 直接字符串相等会漏。这里两侧都去后缀再比，并允许包含关系（「德州」↔「德州市」）。
+ */
+const stripOrgSuffix = (name: string) => name.trim().replace(/(省|市|自治区|特别行政区)$/u, '');
+
+function orgMatch(rowValue: string, filterValue: string): boolean {
+  if (!filterValue) return true;
+  const target = stripOrgSuffix(filterValue);
+  if (!target) return true;
+  const actual = stripOrgSuffix(rowValue);
+  if (!actual) return false;
+  return actual === target || actual.includes(target);
 }
 
 @Injectable()
@@ -255,8 +330,19 @@ export class MaintenanceOverviewService {
     };
   }
 
+  private normalizeWindow(windowDaysInput: number | undefined): number {
+    return Math.min(3650, Math.max(1, Number(windowDaysInput) || 30));
+  }
+
   async build(windowDaysInput: number | undefined, auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
-    const windowDays = Math.min(3650, Math.max(1, Number(windowDaysInput) || 30));
+    return this.compute(this.normalizeWindow(windowDaysInput), auth);
+  }
+
+  /**
+   * 口径唯一来源：总览与到期台账都从这里出数。
+   * 台账另写一套判定的话，「419」这种数字迟早对不上，而对不上的时候没人说得清是哪边错。
+   */
+  private async compute(windowDays: number, auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
     const today = shanghaiToday();
     const kinds: AssetKind[] = ['personnel', 'vehicles', 'generators'];
 
@@ -284,26 +370,40 @@ export class MaintenanceOverviewService {
       const bucket = byKind[index];
       const nameField = NAME_FIELD[kind];
       for (const row of candidates[index]) {
+        const org = orgOf(row);
         const region = regionOf(row);
         const name = String(row[nameField] ?? '').trim() || '（未填写名称）';
+        const recordId = String(row.id);
+        // 台账按省/市/区县筛选要用结构化字段；region 是拼好的展示串，不能拿来匹配
+        const base = {
+          kind,
+          category: CATEGORY_LABEL[kind],
+          recordId,
+          name,
+          region,
+          orgProvince: org.province,
+          orgCity: org.city,
+          orgRegion: org.region,
+          orgCompany: org.company,
+        };
         for (const { field, title } of EXPIRY_FIELDS[kind]) {
           const rawValue = row[field];
           if (rawValue === null || rawValue === undefined) continue;
           const rawText = String(rawValue).trim();
           if (!rawText) continue;
           const parsed = parseLooseDate(rawValue);
-          const id = `${kind}-${String(row.id)}-${field}`;
+          const id = `${kind}-${recordId}-${field}`;
           if (!parsed) {
             counts.anomaly += 1;
             bucket.anomaly += 1;
-            reminders.push({ id, kind, category: CATEGORY_LABEL[kind], recordId: String(row.id), name, region, title, date: rawText, days: null, invalidDate: true });
+            reminders.push({ id, ...base, field, title, date: rawText, days: null, invalidDate: true });
             continue;
           }
           const days = daysBetween(today, parsed);
           if (days > windowDays) continue;
           if (days < 0) { counts.expired += 1; bucket.expired += 1; }
           else { counts.dueSoon += 1; bucket.dueSoon += 1; }
-          reminders.push({ id, kind, category: CATEGORY_LABEL[kind], recordId: String(row.id), name, region, title, date: parsed, days, invalidDate: false });
+          reminders.push({ id, ...base, field, title, date: parsed, days, invalidDate: false });
         }
       }
       bucket.total = bucket.expired + bucket.dueSoon + bucket.anomaly;
@@ -324,6 +424,87 @@ export class MaintenanceOverviewService {
       byKind,
       reminders,
       organizations: [...organizationMap.values()].sort((a, b) => a.region.localeCompare(b.region, 'zh-CN')),
+    };
+  }
+
+  /**
+   * 到期台账：跨人员/车辆/油机一张表，服务端筛选 + 分页。
+   *
+   * 为什么不在数据库里分页：到期判定依赖 parseLooseDate（应用层），
+   * 数据库里字符串比较会把「无」「2027-14-01」当成零日期算成已过期（这批脏值真实存在），
+   * 那样算出来的数字和总览对不上。所以先在应用层算出全集，再筛选分页。
+   * 数据量级（约 1.1 万条待判定、命中几百条）下这点开销可以接受。
+   */
+  async ledger(query: ExpiryLedgerQuery, auth: BizAuthContext): Promise<ExpiryLedgerResult> {
+    const windowDays = this.normalizeWindow(query.windowDays);
+    const { today, reminders } = await this.compute(windowDays, auth);
+
+    const kindFilter = query.kind && query.kind !== 'all' ? query.kind : '';
+    const keyword = (query.keyword ?? '').trim();
+    const status = query.status && query.status !== 'all' ? query.status : '';
+    const orgProvince = query.orgProvince ?? '';
+    const orgCity = query.orgCity ?? '';
+    const orgRegion = query.orgRegion ?? '';
+    const orgCompany = query.orgCompany ?? '';
+
+    // 组织 + 类别 + 关键词：这三层决定「有多少条待办」，也决定状态页签上的数字
+    const scoped = reminders.filter((item) => {
+      if (kindFilter && item.kind !== kindFilter) return false;
+      if (!orgMatch(item.orgProvince, orgProvince)) return false;
+      if (!orgMatch(item.orgCity, orgCity)) return false;
+      if (!orgMatch(item.orgRegion, orgRegion)) return false;
+      if (!orgMatch(item.orgCompany, orgCompany)) return false;
+      if (keyword && !`${item.name}${item.title}${item.region}`.includes(keyword)) return false;
+      return true;
+    });
+
+    const counts = { expired: 0, dueSoon: 0, anomaly: 0, pending: 0 };
+    const byKind = (['personnel', 'vehicles', 'generators'] as AssetKind[]).map((kind) => {
+      const rows = scoped.filter((item) => item.kind === kind);
+      const expired = rows.filter((item) => !item.invalidDate && (item.days ?? 0) < 0).length;
+      const dueSoon = rows.filter((item) => !item.invalidDate && (item.days ?? 0) >= 0).length;
+      const anomaly = rows.filter((item) => item.invalidDate).length;
+      counts.expired += expired;
+      counts.dueSoon += dueSoon;
+      counts.anomaly += anomaly;
+      return { kind, category: CATEGORY_LABEL[kind], expired, dueSoon, anomaly, total: expired + dueSoon + anomaly };
+    });
+    counts.pending = counts.expired + counts.dueSoon + counts.anomaly;
+
+    const matched = !status
+      ? scoped
+      : status === 'anomaly'
+        ? scoped.filter((item) => item.invalidDate)
+        : status === 'expired'
+          ? scoped.filter((item) => !item.invalidDate && (item.days ?? 0) < 0)
+          : scoped.filter((item) => !item.invalidDate && (item.days ?? 0) >= 0);
+
+    const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 50));
+    const totalPages = Math.max(1, Math.ceil(matched.length / pageSize));
+    const page = Math.min(totalPages, Math.max(1, Number(query.page) || 1));
+    const start = (page - 1) * pageSize;
+
+    // 区县选项：只按「类别 + 省 + 市」收敛，不吃状态与关键词，
+    // 否则切到「日期异常」页签时，原本能选的区县会突然从下拉里消失
+    const regions = [...new Set(
+      reminders
+        .filter((item) => (!kindFilter || item.kind === kindFilter)
+          && orgMatch(item.orgProvince, orgProvince)
+          && orgMatch(item.orgCity, orgCity))
+        .map((item) => item.orgRegion)
+        .filter((value) => Boolean(value && value.trim())),
+    )].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+    return {
+      today,
+      windowDays,
+      page,
+      pageSize,
+      total: matched.length,
+      counts,
+      byKind,
+      regions,
+      items: matched.slice(start, start + pageSize),
     };
   }
 }

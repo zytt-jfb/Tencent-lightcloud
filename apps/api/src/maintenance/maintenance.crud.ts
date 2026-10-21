@@ -21,6 +21,9 @@ export function baseQuery<T extends object>(
   keywordColumns: readonly string[],
 ): SelectQueryBuilder<T> {
   const qb = repo.createQueryBuilder(alias).where(`${alias}.deletedAt IS NULL`);
+  // 按 id 精确取一条：到期台账「去补录」跳过来时，目标记录可能在第 8 页，
+  // 前端不能靠翻页碰运气，这里给一个确定的取数方式
+  if (query.id) qb.andWhere(`${alias}.id = :id`, { id: query.id });
   if (query.keyword?.trim() && keywordColumns.length) {
     const clause = keywordColumns.map((column) => `${alias}.${column} LIKE :keyword`).join(' OR ');
     qb.andWhere(`(${clause})`, { keyword: `%${query.keyword.trim()}%` });

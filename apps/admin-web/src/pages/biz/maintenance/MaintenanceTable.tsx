@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table,
   Tabs, Tag, Tooltip, Upload, message, type TableColumnsType,
@@ -69,6 +70,12 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
   const [cityDict, setCityDict] = useState<Array<{ value: string; label: string; provinceId: string }>>([]);
   const [provinceDict, setProvinceDict] = useState<Array<{ value: string; label: string; id: string }>>([]);
   const [selected, setSelected] = useState<MaintenanceItem | null>(null);
+  // 到期台账「去补录」带过来的定位参数：focus=记录 id，field=要补的字段
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusId = searchParams.get('focus');
+  const focusField = searchParams.get('field') ?? '';
+  const [activeTab, setActiveTab] = useState<string>();
+  const [highlightField, setHighlightField] = useState('');
 
   const canWrite = useBizPermission('maintenance.data.write');
   const canDelete = useBizPermission('maintenance.data.delete');
@@ -206,12 +213,45 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
 
   const openEdit = (row: MaintenanceItem) => {
     setEditing(row);
+    setHighlightField('');
     form.setFieldsValue(row as Record<string, unknown>);
     setDocumentIds([]);
     setDocuments([]);
     setOpen(true);
     void maintenanceListDocuments(kind, row.id).then(setDocuments).catch(() => message.error('附件列表加载失败'));
   };
+
+  /**
+   * 从到期台账点「去补录」进来：`?focus=<记录id>&field=<字段名>`。
+   * 目标记录不一定在当前页（人员 1055 条，第 1 页只有 50），所以按 id 精确取一条再开抽屉，
+   * 并把页签切到该字段所在分区、高亮那个字段 —— 否则用户还得自己找人在第几页、字段在第几个页签。
+   */
+  useEffect(() => {
+    if (!focusId) return;
+    let cancelled = false;
+    void maintenanceList(kind, { id: focusId, page: 1, pageSize: 1 })
+      .then((result) => {
+        if (cancelled) return;
+        const row = result.items[0];
+        if (!row) {
+          message.warning('未找到该记录：可能已被删除，或不在当前账号的数据范围内');
+          return;
+        }
+        openEdit(row);
+        if (!focusField) return;
+        setHighlightField(focusField);
+        const section = sections.find((item) => item.fields.some(([name]) => name === focusField));
+        if (section) setActiveTab(section.key);
+      })
+      .catch(() => { if (!cancelled) message.error('定位记录失败'); })
+      .finally(() => {
+        // 清掉参数，否则刷新或切页会重复弹抽屉
+        if (!cancelled) setSearchParams({}, { replace: true });
+      });
+    return () => { cancelled = true; };
+    // openEdit / sections 在同类页面内是稳定的，只跟定位参数与 kind 有关
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, focusField, kind]);
 
   const columns: TableColumnsType<MaintenanceItem> = [
     ...businessColumns.map(([dataIndex, title]) => ({
@@ -279,7 +319,7 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
         <Space>
           <Button icon={<DownloadOutlined />} loading={exporting} disabled={!total} onClick={() => void exportRows()}>导出 Excel</Button>
           {canWrite
-            ? <Button type="primary" onClick={() => { setSelected(null); setEditing(null); form.resetFields(); setDocumentIds([]); setDocuments([]); setOpen(true); }}>新增{label}</Button>
+            ? <Button type="primary" onClick={() => { setSelected(null); setEditing(null); setHighlightField(''); form.resetFields(); setDocumentIds([]); setDocuments([]); setOpen(true); }}>新增{label}</Button>
             : <Tooltip title="当前账号没有维护数据的新增/编辑权限"><Button disabled>新增{label}</Button></Tooltip>}
         </Space>
       )}
@@ -361,7 +401,7 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
         placement="right"
         width="50vw"
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => { setOpen(false); setHighlightField(''); }}
         mask={false}
         destroyOnClose
         styles={{ wrapper: { maxWidth: '100vw' } }}
@@ -379,6 +419,8 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
             </Card>
           )}
           <Tabs
+            activeKey={activeTab ?? sections[0]?.key}
+            onChange={setActiveTab}
             items={sections.map((section) => ({
               key: section.key,
               label: section.label,
@@ -388,6 +430,8 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
                     <Form.Item
                       key={name}
                       name={name}
+                      // 从到期台账跳过来时高亮要补的那个字段，避免用户在 32 个字段里再找一遍
+                      style={highlightField === name ? { background: '#fffbe6', outline: '1px dashed #d4a017', borderRadius: 6, padding: '8px 12px' } : undefined}
                       label={(
                         <Space>
                           {text}

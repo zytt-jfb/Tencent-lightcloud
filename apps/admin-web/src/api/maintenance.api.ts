@@ -5,13 +5,30 @@ const request = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL || '/a
 request.interceptors.request.use((config) => { const token = getBizToken(); if (token) config.headers.Authorization = `Bearer ${token}`; return config; });
 
 export type MaintenanceItem = Record<string, unknown> & { id: string; status: string; orgProvince: string; orgCity?: string | null; orgCompany: string; orgRegion: string };
-export type MaintenanceQuery = { keyword?: string; orgProvince?: string; orgCity?: string; orgCompany?: string; orgRegion?: string; status?: string; page?: number; pageSize?: number };
+export type MaintenanceQuery = { id?: string; keyword?: string; orgProvince?: string; orgCity?: string; orgCompany?: string; orgRegion?: string; status?: string; page?: number; pageSize?: number };
 export async function maintenanceList(kind: 'personnel'|'vehicles'|'generators', params: MaintenanceQuery) { return (await request.get(`/biz/maintenance/${kind}`, { params })).data as { items: MaintenanceItem[]; total: number; page: number; pageSize: number }; }
 export async function maintenanceCreate(kind: 'personnel'|'vehicles'|'generators', data: Record<string, unknown>) { return (await request.post(`/biz/maintenance/${kind}`, data)).data as MaintenanceItem; }
 export async function maintenanceUpdate(kind: 'personnel'|'vehicles'|'generators', id: string, data: Record<string, unknown>) { return (await request.patch(`/biz/maintenance/${kind}/${id}`, data)).data as MaintenanceItem; }
 export async function maintenanceRemove(kind: 'personnel'|'vehicles'|'generators', id: string) { return (await request.delete(`/biz/maintenance/${kind}/${id}`)).data as { id: string; deleted: boolean }; }
 /** 数据总览：三类资产计数 + 到期清单 + 组织汇总，一次请求返回（替代原先的逐页翻表） */
-export type MaintenanceReminder = { id: string; kind: 'personnel'|'vehicles'|'generators'; category: string; recordId: string; name: string; region: string; title: string; date: string; days: number | null; invalidDate: boolean };
+export type MaintenanceReminder = {
+  id: string;
+  kind: 'personnel'|'vehicles'|'generators';
+  category: string;
+  recordId: string;
+  /** 到期字段名；台账「去补录」靠它定位到具体表单项 */
+  field: string;
+  name: string;
+  region: string;
+  orgProvince: string;
+  orgCity: string;
+  orgRegion: string;
+  orgCompany: string;
+  title: string;
+  date: string;
+  days: number | null;
+  invalidDate: boolean;
+};
 export type MaintenanceOverview = {
   today: string;
   generatedAt: string;
@@ -44,4 +61,39 @@ export async function maintenanceListDocuments(kind: 'personnel'|'vehicles'|'gen
 }
 export async function maintenanceDownloadDocument(kind: 'personnel'|'vehicles'|'generators', id: string): Promise<Blob> {
   return (await request.get(`/biz/maintenance/${kind}/documents/${encodeURIComponent(id)}/download`, { responseType: 'blob' })).data as Blob;
+}
+
+/**
+ * 到期台账：跨人员/车辆/油机一张表，服务端筛选 + 分页。
+ * 与 `maintenanceOverview` 共用后端同一套到期判定，所以 counts 与总览的 pending 必然一致。
+ */
+export type ExpiryLedgerQuery = {
+  kind?: 'personnel'|'vehicles'|'generators'|'all';
+  status?: 'expired'|'dueSoon'|'anomaly'|'all';
+  windowDays?: number;
+  orgProvince?: string;
+  orgCity?: string;
+  orgRegion?: string;
+  orgCompany?: string;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type ExpiryLedger = {
+  today: string;
+  windowDays: number;
+  page: number;
+  pageSize: number;
+  total: number;
+  /** 状态分段计数：不受 status 影响，切换页签时数字不跳 */
+  counts: { expired: number; dueSoon: number; anomaly: number; pending: number };
+  byKind: Array<{ kind: 'personnel'|'vehicles'|'generators'; category: string; expired: number; dueSoon: number; anomaly: number; total: number }>;
+  /** 区县下拉选项，只随「类别 + 省 + 市」收敛，不吃状态筛选 */
+  regions: string[];
+  items: MaintenanceReminder[];
+};
+
+export async function maintenanceExpiryLedger(params: ExpiryLedgerQuery): Promise<ExpiryLedger> {
+  return (await request.get('/biz/maintenance/expiry-ledger', { params })).data as ExpiryLedger;
 }
