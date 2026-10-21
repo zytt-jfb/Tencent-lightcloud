@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message, type TableColumnsType } from 'antd';
+import { Button, Card, DatePicker, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message, type TableColumnsType } from 'antd';
+import dayjs from 'dayjs';
 import { DownloadOutlined } from '@ant-design/icons';
 import { maintenanceCreate, maintenanceDownloadDocument, maintenanceFacets, maintenanceList, maintenanceListDocuments, maintenanceRemove, maintenanceUpdate, maintenanceUploadDocument, type MaintenanceDocument, type MaintenanceFacets, type MaintenanceItem } from '@/api/maintenance.api';
 import { bizCities, bizProvinces } from '@/api/biz.api';
@@ -146,6 +147,17 @@ function DetailCard({ kind, row }: { kind: Kind; row: MaintenanceItem }) {
 const PAGE_SIZES = [20, 50, 100];
 /** 会被权限点维护掩码的字段：无 maintenance.sensitive.read 时读到的就是 3701****1234 */
 const MASKED_FIELDS = ['idCard', 'mobile', 'driverMobile', 'contactMobile'];
+/**
+ * 有效期 / 日期类字段：原来是纯文本 Input，没有格式约束，历史数据里混进了「无」「2027-14-01」
+ * 「至2027年8月19日」这类值（总览里被单列为「日期异常」）。改成 DatePicker 之后新增/编辑只能产出
+ * YYYY-MM-DD，从源头止住脏值。
+ */
+const DATE_FIELD_RE = /(Expiry|Time|Date)$/;
+/** 已有脏值反解析失败时给 undefined，避免 DatePicker 显示 Invalid Date 白屏 */
+const toDayjs = (value: unknown) => {
+  const parsed = dayjs(String(value ?? ''));
+  return parsed.isValid() ? parsed : undefined;
+};
 
 export default function MaintenanceHome() {
   const location = useLocation();
@@ -303,7 +315,9 @@ export default function MaintenanceHome() {
           key: section.key,
           label: section.label,
           children: <div style={{ padding: '12px 8px' }}>{section.fields.map(([name, label]) => (
-            <Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key, name) && <Upload showUploadList={false} beforeUpload={(file) => { void handleUpload(name, file); return false; }} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode', 'name', 'plateNumber', 'generatorCode', 'orgProvince', 'orgCity', 'orgCompany', 'orgRegion'].includes(name) ? [{ required: true, message: `请选择或输入${label}` }] : undefined}>
+            <Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key, name) && <Upload showUploadList={false} beforeUpload={(file) => { void handleUpload(name, file); return false; }} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode', 'name', 'plateNumber', 'generatorCode', 'orgProvince', 'orgCity', 'orgCompany', 'orgRegion'].includes(name) ? [{ required: true, message: `请选择或输入${label}` }] : undefined}
+              getValueProps={DATE_FIELD_RE.test(name) ? (value) => ({ value: toDayjs(value) }) : undefined}
+              normalize={DATE_FIELD_RE.test(name) ? (value) => (value && dayjs.isDayjs(value) ? value.format('YYYY-MM-DD') : '') : undefined}>
               {name === 'orgProvince'
                 ? <Select showSearch optionFilterProp="label" options={provinceOptions} placeholder="请选择省份" />
                 : name === 'orgCity'
@@ -311,7 +325,9 @@ export default function MaintenanceHome() {
                   : isMaskedField(name)
                     // 掩码值只读：无权限账号看不到明文，也就不能用掩码值把库里的真值盖掉（后端同样会丢弃）
                     ? <Tooltip title="当前账号只能查看脱敏后的号码，如需修改请联系管理员"><Input readOnly /></Tooltip>
-                    : <Input />}
+                    : DATE_FIELD_RE.test(name)
+                      ? <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" placeholder="请选择日期" />
+                      : <Input />}
             </Form.Item>
           ))}</div>,
         }))} />
