@@ -10,6 +10,20 @@ export async function maintenanceList(kind: 'personnel'|'vehicles'|'generators',
 export async function maintenanceCreate(kind: 'personnel'|'vehicles'|'generators', data: Record<string, unknown>) { return (await request.post(`/biz/maintenance/${kind}`, data)).data as MaintenanceItem; }
 export async function maintenanceUpdate(kind: 'personnel'|'vehicles'|'generators', id: string, data: Record<string, unknown>) { return (await request.patch(`/biz/maintenance/${kind}/${id}`, data)).data as MaintenanceItem; }
 export async function maintenanceRemove(kind: 'personnel'|'vehicles'|'generators', id: string) { return (await request.delete(`/biz/maintenance/${kind}/${id}`)).data as { id: string; deleted: boolean }; }
+/** 数据总览：三类资产计数 + 到期清单 + 组织汇总，一次请求返回（替代原先的逐页翻表） */
+export type MaintenanceReminder = { id: string; kind: 'personnel'|'vehicles'|'generators'; category: string; recordId: string; name: string; region: string; title: string; date: string; days: number | null; invalidDate: boolean };
+export type MaintenanceOverview = {
+  today: string;
+  generatedAt: string;
+  windowDays: number;
+  counts: { personnel: number; vehicles: number; generators: number; expired: number; dueSoon: number; pending: number; anomaly: number };
+  byKind: Array<{ kind: 'personnel'|'vehicles'|'generators'; category: string; expired: number; dueSoon: number; anomaly: number; total: number }>;
+  reminders: MaintenanceReminder[];
+  organizations: Array<{ region: string; personnel: number; vehicles: number; generators: number }>;
+};
+export async function maintenanceOverview(windowDays = 30): Promise<MaintenanceOverview> {
+  return (await request.get('/biz/maintenance/overview', { params: { windowDays } })).data as MaintenanceOverview;
+}
 export type MaintenanceDocument = { id: string; category: string; fileName: string; mimeType: string; fileSize: number; createdAt?: string };
 export type MaintenanceDocumentUpload = MaintenanceDocument & { extractedText: string; fields: Array<{ key: string; text: string }>; ocrAvailable: boolean; extractionError?: string | null };
 export async function maintenanceUploadDocument(kind: 'personnel'|'vehicles'|'generators', category: string, file: File): Promise<MaintenanceDocumentUpload> {
