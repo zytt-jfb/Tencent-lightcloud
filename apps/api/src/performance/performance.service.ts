@@ -8,6 +8,9 @@ import { BizAuthContext } from '../rbac/rbac.service';
 import { AccessScopeService, type AccessScopeSnapshot } from '../rbac/access-scope.service';
 import { CityEntity } from '../main-data/city.entity';
 import { cityAliases } from '../common/org-name';
+import { rankDesc } from '../common/ranking';
+import { buildDistribution } from '../common/score-buckets';
+import { parseMonthHeader } from '../biz-assessments/assessment-normalize';
 import { PerformanceBatchEntity, PerformanceRecordEntity } from './performance.entity';
 import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entity';
 
@@ -28,23 +31,29 @@ export class PerformanceService {
     const supplierIndex = normalized.indexOf('代维单位');
     const cityIndex = normalized.findIndex((value) => ['地市', '城市'].includes(value));
     const regionIndex = normalized.findIndex((value) => ['区域', '区县', '组织'].includes(value));
-    const monthStart = normalized.findIndex((value) => /^1月$/.test(value));
-    const monthHeaders = monthStart >= 0 ? normalized.slice(monthStart) : [];
-    if (supplierIndex < 0 || regionIndex < 0 || monthStart < 0 || monthHeaders.some((value, index) => value && !/^\d+月$/.test(value))) {
-      throw new BadRequestException('模板必须包含：代维单位、地市/区域、连续月份评分列');
+    // 月份列表头逐列解析（原实现只认 `/^1月$/` 起头的连续列，写「7月份」「2026-07」或列不连续都会整张表被拒）。
+    // 月份没有年份时用上传时选择的考核年度补齐；同一月份出现两次时只取第一列。
+    const monthColumns = new Map<number, number>();
+    normalized.forEach((value, index) => {
+      const parsed = parseMonthHeader(value, year);
+      if (parsed && !monthColumns.has(parsed.month)) monthColumns.set(parsed.month, index);
+    });
+    if (supplierIndex < 0 || regionIndex < 0 || monthColumns.size === 0) {
+      throw new BadRequestException('模板必须包含：代维单位、地市/区域、月份评分列（表头写「7月」「7月份」「2026-07」均可）');
     }
+    const recognizedMonths = [...monthColumns.keys()].sort((a, b) => a - b);
     const batch = this.batchesRepo.create({ id: randomUUID(), filename: file.originalname, uploadedBy: auth.userId, totalRows: rows.length, status: 'active' });
     try { await this.batchesRepo.save(batch); } catch (error) { throw new BadRequestException(`绩效批次写入失败：${error instanceof Error ? error.message : String(error)}`); }
     // Re-uploading replaces only the selected assessment year; other years remain available.
     try { await this.repo.createQueryBuilder().delete().from(PerformanceRecordEntity).where('assessment_year = :year', { year }).execute(); } catch (error) { throw new BadRequestException(`清理旧绩效数据失败：${error instanceof Error ? error.message : String(error)}`); }
-    const entities = rows.filter(r => String(r[supplierIndex] ?? '').trim()).map(r => { const city = cityIndex >= 0 ? String(r[cityIndex] ?? '').trim() : ''; const region = String(r[regionIndex] ?? '').trim(); return this.repo.create({ id: randomUUID(), batchId: batch.id, assessmentYear: year, supplier: String(r[supplierIndex]).trim(), city, region, organization: [city, region].filter(Boolean).join(' / '), ...Object.fromEntries(months.map((key, index) => [key, num(r[index + monthStart])])) }); });
+    const entities = rows.filter(r => String(r[supplierIndex] ?? '').trim()).map(r => { const city = cityIndex >= 0 ? String(r[cityIndex] ?? '').trim() : ''; const region = String(r[regionIndex] ?? '').trim(); return this.repo.create({ id: randomUUID(), batchId: batch.id, assessmentYear: year, supplier: String(r[supplierIndex]).trim(), city, region, organization: [city, region].filter(Boolean).join(' / '), ...Object.fromEntries([...monthColumns].map(([month, column]) => [months[month - 1], num(r[column])])) }); });
     try { await this.repo.save(entities); } catch (error) { throw new BadRequestException(`绩效明细写入失败：${error instanceof Error ? error.message : String(error)}`); }
     try {
       await this.opLogRepo.save({ id: randomUUID(), operatorUserId: auth.userId, actionType: 'performance.upload', targetType: 'performance', targetId: batch.id, resultStatus: 'success', summaryAfter: `导入绩效文件 ${file.originalname}，共 ${entities.length} 行` });
     } catch (error) {
       console.warn('[Performance] upload succeeded but operation log was not written:', error instanceof Error ? error.message : error);
     }
-    return { batchId: batch.id, totalRows: entities.length };
+    return { batchId: batch.id, totalRows: entities.length, monthCount: recognizedMonths.length, months: recognizedMonths };
   }
   /**
    * 数据范围：把账号绑定的地市 UUID 换成地市**名称**，再去匹配绩效表的 city 列。
@@ -85,6 +94,11 @@ export class PerformanceService {
       const value = r[key];
       return value == null || !Number.isFinite(Number(value)) ? null : Number(value);
     };
+    // 当前筛选（供应商/地市）下、当月有分数的记录 —— 分数分布图与「记录数」都基于这个集合，
+    // 保证「分布合计 = 记录数」（用户核对时不会因为一个含筛选一个不含筛选而对不上）
+    const filteredYearRows = yearRows.filter((r) =>
+      (!q.supplier || r.supplier === q.supplier) && (!q.city || r.city === q.city));
+    const monthScores = filteredYearRows.map(valueOf).filter((value): value is number => value != null);
 
     // 汇总 sheet: AVERAGEIFS by city + supplier, then RANK across all such rows.
     const citySupplierGroups = new Map<string, { city: string; supplier: string; values: number[] }>();
@@ -102,9 +116,13 @@ export class PerformanceService {
       supplier: group.supplier,
       score: group.values.reduce((sum, value) => sum + value, 0) / group.values.length,
     }));
-    const rank = <T extends { score: number }>(values: T[]) => values
-      .map((item) => ({ ...item, rank: 1 + values.filter((other) => other.score > item.score).length }))
-      .sort((a, b) => a.rank - b.rank || b.score - a.score);
+    const rank = <T extends { score: number }>(values: T[]) => {
+      // 排名算法与后评估成绩单共用 rankDesc；月度考核沿用原实现的零容差（口径不合并）
+      const scores = values.map((item) => item.score);
+      return values
+        .map((item) => ({ ...item, rank: rankDesc(scores, item.score, 0) ?? 1 }))
+        .sort((a, b) => a.rank - b.rank || b.score - a.score);
+    };
     const citySupplierItems = rank(citySupplierAll.filter((item) =>
       (!q.supplier || item.supplier === q.supplier) && (!q.city || item.city === q.city)));
 
@@ -126,6 +144,9 @@ export class PerformanceService {
       year, month, companyScore, items, citySupplierItems,
       organizations: citySupplierItems,
       organizationCount,
+      // 分数分布（与记录数同源，合计必然等于 recordCount）
+      distribution: buildDistribution(monthScores),
+      recordCount: monthScores.length,
       suppliers: [...new Set(allRows.filter((row) => row.assessmentYear === year).map((row) => row.supplier))].sort(),
       cities: [...new Set(yearRows.map((row) => row.city).filter(Boolean))].sort(),
       years: [...new Set(allRows.map((row) => row.assessmentYear))].sort((a, b) => b - a),

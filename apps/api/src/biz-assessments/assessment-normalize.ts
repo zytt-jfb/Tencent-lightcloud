@@ -101,3 +101,32 @@ export function buildDedupKey(parts: Array<string | null | undefined>): string {
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+/**
+ * 解析「月份表头」（月度考核模板专用）
+ *
+ * 月度考核的月份列没有年份信息，表头可能是：7月 / 7月份 / 2026-07 / 2026年7月 / Excel 序列号 / Date。
+ * 先交给 parseEvalMonth 处理带年份或可换算的写法，再兜底纯月份写法；
+ * 只有月份时用上传时选择的考核年度补齐（fallbackYear）。
+ *
+ * 返回 null 表示这一列不是月份列（如「代维单位」「地市」）。
+ */
+export function parseMonthHeader(raw: unknown, fallbackYear?: number): { year: number; month: number } | null {
+  const full = parseEvalMonth(raw);
+  if (full) {
+    const [year, month] = full.split('-').map(Number);
+    return { year, month };
+  }
+  const text = raw === null || raw === undefined ? '' : String(raw).trim();
+  const bareMonth = /^(\d{1,2})\s*月(?:份)?$/.exec(text);
+  if (bareMonth) {
+    const month = Number(bareMonth[1]);
+    return month >= 1 && month <= 12 ? { year: fallbackYear ?? 0, month } : null;
+  }
+  // 表头只写数字的情况（1 / 01），限定 1-12 才不会把年份、条数当成月份
+  if (/^\d{1,2}$/.test(text)) {
+    const month = Number(text);
+    return month >= 1 && month <= 12 ? { year: fallbackYear ?? 0, month } : null;
+  }
+  return null;
+}

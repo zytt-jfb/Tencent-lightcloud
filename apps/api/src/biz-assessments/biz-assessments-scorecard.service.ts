@@ -5,6 +5,7 @@ import { AssessmentRecordEntity } from './assessment-record.entity';
 import { CityEntity } from '../main-data/city.entity';
 import { ProvinceEntity } from '../main-data/province.entity';
 import { BizAuthContext } from '../rbac/rbac.service';
+import { rankDesc } from '../common/ranking';
 
 /** 计入统计的状态：导入行 active、线下填报已提交 */
 const EFFECTIVE_STATUSES = ['active', 'submitted'];
@@ -116,13 +117,6 @@ interface ProjectAgg {
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 const safeDiv = (sum: number, count: number): number => (count > 0 ? round2(sum / count) : 0);
-
-/** 标准竞赛排名（并列同名次、跳号）：比 target 大的个数 + 1 */
-function rankDesc(values: number[], target: number): number | null {
-  if (values.length === 0) return null;
-  const better = values.filter((value) => value > target + 1e-9).length;
-  return better + 1;
-}
 
 /** 月份减一：2025-01 → 2024-12 */
 function prevMonthOf(month: string): string {

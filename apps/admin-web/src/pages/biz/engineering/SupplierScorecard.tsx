@@ -6,6 +6,7 @@ import {
   type BreakdownGroup, type BreakdownRow, type BreakdownSupplierRow, type ProjectBreakdown,
   type SupplierScorecard, type SupplierScorecardRow, type TrendPoint,
 } from '@/api/biz-assessment.api';
+import RankBadge from '@/components/biz/RankBadge';
 
 const { Title, Text } = Typography;
 
@@ -42,19 +43,6 @@ const CELL: React.CSSProperties = {
 };
 const HEAD: React.CSSProperties = { ...CELL, background: C.head, fontSize: 12 };
 const SCORE_CELL: React.CSSProperties = { ...CELL, background: C.scoreBg };
-
-/** 排名徽章：前三用深浅绿，其余灰 */
-function RankBadge({ rank }: { rank: number | null }) {
-  if (rank === null) return <span style={{ color: '#999' }}>-</span>;
-  const color = rank === 1 ? '#237804' : rank === 2 ? '#52c41a' : rank === 3 ? '#95de64' : '#d9d9d9';
-  const textColor = rank <= 3 ? '#fff' : '#333';
-  return (
-    <span style={{
-      display: 'inline-block', minWidth: 22, padding: '0 6px', borderRadius: 10,
-      background: color, color: textColor, fontSize: 12, lineHeight: '18px',
-    }}>{rank}</span>
-  );
-}
 
 /** 月度趋势：分数柱 + 排名折线（排名轴反向，1 在最上） */
 function TrendChart({ points }: { points: TrendPoint[] }) {
