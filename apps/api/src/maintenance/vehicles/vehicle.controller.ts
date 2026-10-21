@@ -19,7 +19,7 @@ import { MaintenanceVehicleService } from './vehicle.service';
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class MaintenanceVehicleController {
   constructor(private readonly service: MaintenanceVehicleService, private readonly documents: MaintenanceDocumentService) {}
-  @Get() list(@Query() q: MaintenanceListQuery) { return this.service.list(q); }
+  @Get() list(@Query() q: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext) { return this.service.list(q, auth); }
   @Post() create(@Body() dto: CreateVehicleDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
   @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateVehicleDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
   @Get(':id/documents') listDocuments(@Param('id') id: string, @BizAuthUser() auth: BizAuthContext) { return this.service.listDocuments(id, auth); }

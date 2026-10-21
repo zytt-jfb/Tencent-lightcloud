@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { MaintenancePersonnelEntity } from './personnel/personnel.entity';
 import { MaintenanceVehicleEntity } from './vehicles/vehicle.entity';
 import { MaintenanceGeneratorEntity } from './generators/generator.entity';
+import { MaintenanceScopeService } from './maintenance-scope.service';
+import type { BizAuthContext } from '../rbac/rbac.service';
 
 /**
  * 维护管理「数据总览」聚合服务
@@ -173,6 +175,7 @@ export class MaintenanceOverviewService {
     @InjectRepository(MaintenancePersonnelEntity) private readonly personnelRepo: Repository<MaintenancePersonnelEntity>,
     @InjectRepository(MaintenanceVehicleEntity) private readonly vehicleRepo: Repository<MaintenanceVehicleEntity>,
     @InjectRepository(MaintenanceGeneratorEntity) private readonly generatorRepo: Repository<MaintenanceGeneratorEntity>,
+    private readonly scope: MaintenanceScopeService,
   ) {}
 
   private repoOf(kind: AssetKind): Repository<object> {
@@ -182,9 +185,9 @@ export class MaintenanceOverviewService {
   }
 
   /** 组织汇总 + 该类资产总数：一次 GROUP BY 拿到，行数等于组织数 */
-  private async groupByOrg(kind: AssetKind): Promise<{ rows: MaintenanceOrganizationRow[]; total: number }> {
+  private async groupByOrg(kind: AssetKind, auth: BizAuthContext): Promise<{ rows: MaintenanceOrganizationRow[]; total: number }> {
     const repo = this.repoOf(kind);
-    const raw = await repo.createQueryBuilder('t')
+    const qb = repo.createQueryBuilder('t')
       .select('t.orgProvince', 'province')
       .addSelect('t.orgCity', 'city')
       .addSelect('t.orgCompany', 'company')
@@ -194,8 +197,9 @@ export class MaintenanceOverviewService {
       .groupBy('t.orgProvince')
       .addGroupBy('t.orgCity')
       .addGroupBy('t.orgCompany')
-      .addGroupBy('t.orgRegion')
-      .getRawMany<{ province: string | null; city: string | null; company: string | null; region: string | null; total: string | number }>();
+      .addGroupBy('t.orgRegion');
+    this.scope.apply(qb, await this.scope.resolve(auth), 't');
+    const raw = await qb.getRawMany<{ province: string | null; city: string | null; company: string | null; region: string | null; total: string | number }>();
     const rows: MaintenanceOrganizationRow[] = raw.map((row) => ({
       region: regionOf(row),
       personnel: 0,
@@ -207,26 +211,55 @@ export class MaintenanceOverviewService {
   }
 
   /** 该类资产里「至少一个有效期字段有值」的记录，只取判定与展示需要的列 */
-  private async expiryRows(kind: AssetKind): Promise<Array<Record<string, unknown>>> {
+  private async expiryRows(kind: AssetKind, auth: BizAuthContext): Promise<Array<Record<string, unknown>>> {
     const repo = this.repoOf(kind);
     const fields = EXPIRY_FIELDS[kind];
     const columns = ['id', NAME_FIELD[kind], 'orgProvince', 'orgCity', 'orgCompany', 'orgRegion', ...fields.map((item) => item.field)];
-    return repo.createQueryBuilder('t')
+    const qb = repo.createQueryBuilder('t')
       .select(columns.map((column) => `t.${column}`))
       .where('t.deletedAt IS NULL')
-      .andWhere(`(${fields.map((item) => `NULLIF(TRIM(t.${item.field}), '') IS NOT NULL`).join(' OR ')})`)
-      .getMany() as unknown as Array<Record<string, unknown>>;
+      .andWhere(`(${fields.map((item) => `NULLIF(TRIM(t.${item.field}), '') IS NOT NULL`).join(' OR ')})`);
+    this.scope.apply(qb, await this.scope.resolve(auth), 't');
+    return qb.getMany() as unknown as Array<Record<string, unknown>>;
   }
 
-  async build(windowDaysInput?: number): Promise<MaintenanceOverviewResult> {
+  /**
+   * 筛选项字典：区县/地市/公司下拉用服务端 distinct。
+   * 改造前区县下拉取的是「当前页 50 条」，翻页后选项会变、选不到别的区县。
+   */
+  async facets(kind: AssetKind, auth: BizAuthContext): Promise<{ provinces: string[]; cities: string[]; companies: string[]; regions: string[] }> {
+    const repo = this.repoOf(kind);
+    const qb = repo.createQueryBuilder('t')
+      .select('t.orgProvince', 'province')
+      .addSelect('t.orgCity', 'city')
+      .addSelect('t.orgCompany', 'company')
+      .addSelect('t.orgRegion', 'region')
+      .where('t.deletedAt IS NULL')
+      .groupBy('t.orgProvince')
+      .addGroupBy('t.orgCity')
+      .addGroupBy('t.orgCompany')
+      .addGroupBy('t.orgRegion');
+    this.scope.apply(qb, await this.scope.resolve(auth), 't');
+    const rows = await qb.getRawMany<{ province: string | null; city: string | null; company: string | null; region: string | null }>();
+    const collect = (pick: (row: { province: string | null; city: string | null; company: string | null; region: string | null }) => string | null) =>
+      [...new Set(rows.map(pick).filter((value): value is string => Boolean(value && String(value).trim())))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    return {
+      provinces: collect((row) => row.province),
+      cities: collect((row) => row.city),
+      companies: collect((row) => row.company),
+      regions: collect((row) => row.region),
+    };
+  }
+
+  async build(windowDaysInput: number | undefined, auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
     const windowDays = Math.min(3650, Math.max(1, Number(windowDaysInput) || 30));
     const today = shanghaiToday();
     const kinds: AssetKind[] = ['personnel', 'vehicles', 'generators'];
 
     // 6 个查询并发：每类资产 1 个组织汇总 + 1 个到期候选
     const [groups, candidates] = await Promise.all([
-      Promise.all(kinds.map((kind) => this.groupByOrg(kind))),
-      Promise.all(kinds.map((kind) => this.expiryRows(kind))),
+      Promise.all(kinds.map((kind) => this.groupByOrg(kind, auth))),
+      Promise.all(kinds.map((kind) => this.expiryRows(kind, auth))),
     ]);
 
     const counts = { personnel: 0, vehicles: 0, generators: 0, expired: 0, dueSoon: 0, pending: 0, anomaly: 0 };

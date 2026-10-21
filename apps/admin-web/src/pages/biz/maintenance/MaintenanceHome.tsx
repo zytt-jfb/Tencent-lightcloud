@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Upload, message, type TableColumnsType } from 'antd';
-import { maintenanceCreate, maintenanceDownloadDocument, maintenanceList, maintenanceListDocuments, maintenanceRemove, maintenanceUpdate, maintenanceUploadDocument, type MaintenanceDocument, type MaintenanceItem } from '@/api/maintenance.api';
+import { Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Tooltip, Upload, message, type TableColumnsType } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
+import { maintenanceCreate, maintenanceDownloadDocument, maintenanceFacets, maintenanceList, maintenanceListDocuments, maintenanceRemove, maintenanceUpdate, maintenanceUploadDocument, type MaintenanceDocument, type MaintenanceFacets, type MaintenanceItem } from '@/api/maintenance.api';
 import { bizCities, bizProvinces } from '@/api/biz.api';
 import { useLocation } from 'react-router-dom';
 import { useBizPermission } from '@/utils/biz-permission';
+import { exportPageRows } from '@/utils/page-export-core';
 
 const configs = {
   personnel: { label:'人员', fields:[['personnelCode','人员编号'],['name','姓名'],['gender','性别'],['age','年龄'],['account','账号'],['position','岗位'],['employmentType','自有人员/队伍人员'],['mobile','手机号'],['idCard','身份证号'],['orgProvince','省份'],['orgCity','地市'],['orgCompany','公司/分公司'],['orgRegion','区县'],['lowVoltageCert','低压电工证'],['lowVoltageCertExpiry','低压电工证有效期限'],['highVoltageCert','高压电工证'],['highVoltageCertExpiry','高压电工证有效期限'],['workAtHeightCert','登高证'],['workAtHeightCertExpiry','登高证有效期限'],['employerLiabilityAmount','雇主责任险（万元）'],['employerLiabilityPolicyNo','雇主责任险（保单号）'],['employerLiabilityExpiry','雇主责任险有效期限'],['teamAccidentAmount','团队意外险（万元）'],['teamAccidentPolicyNo','团队意外险（保单号）'],['teamAccidentExpiry','团队意外险有效期限'],['teamAccidentAmount2','团队意外险（万元）#2'],['teamAccidentPolicyNo2','团队意外险（保单号）#2'],['teamAccidentExpiry2','团队意外险有效期限#2'],['teamAccidentAmount3','团队意外险（万元）#3'],['teamAccidentPolicyNo3','团队意外险（保单号）#3'],['teamAccidentExpiry3','团队意外险有效期限#3'],['personnelCondition','人员情况']] },
@@ -141,50 +143,178 @@ function DetailCard({ kind, row }: { kind: Kind; row: MaintenanceItem }) {
   );
 }
 
-export default function MaintenanceHome() { const location=useLocation(); const routeKind=location.pathname.split('/').pop() ?? ''; const kind:Kind=routeKind in configs ? routeKind as Kind : 'personnel'; const [items,setItems]=useState<MaintenanceItem[]>([]); const [total,setTotal]=useState(0); const [page,setPage]=useState(1); const [loading,setLoading]=useState(false); const [filters,setFilters]=useState({ keyword:'', orgProvince:'', orgCity:'', orgRegion:'' }); const [editing,setEditing]=useState<MaintenanceItem|null>(null); const [open,setOpen]=useState(false); const [documentIds,setDocumentIds]=useState<string[]>([]); const [documents,setDocuments]=useState<MaintenanceDocument[]>([]); const [form]=Form.useForm<any>(); const [cityOptions,setCityOptions]=useState<Array<{value:string;label:string}>>([]); const [provinceOptions,setProvinceOptions]=useState<Array<{value:string;label:string}>>([]);
-  useEffect(()=>{void Promise.all([bizCities(),bizProvinces()]).then(([cityResult,provinceResult])=>{setCityOptions(cityResult.items.map(city=>({value:city.name,label:city.name})));setProvinceOptions(provinceResult.items.map(province=>({value:province.name,label:province.name})));}).catch(()=>message.error('地市字典加载失败'));},[]);
+const PAGE_SIZES = [20, 50, 100];
+/** 会被权限点维护掩码的字段：无 maintenance.sensitive.read 时读到的就是 3701****1234 */
+const MASKED_FIELDS = ['idCard', 'mobile', 'driverMobile', 'contactMobile'];
+
+export default function MaintenanceHome() {
+  const location = useLocation();
+  const routeKind = location.pathname.split('/').pop() ?? '';
+  const kind: Kind = routeKind in configs ? (routeKind as Kind) : 'personnel';
+  const [items, setItems] = useState<MaintenanceItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [facets, setFacets] = useState<MaintenanceFacets>();
+  const [filters, setFilters] = useState({ keyword: '', orgProvince: '', orgCity: '', orgRegion: '' });
+  const [editing, setEditing] = useState<MaintenanceItem | null>(null);
+  const [open, setOpen] = useState(false);
+  const [documentIds, setDocumentIds] = useState<string[]>([]);
+  const [documents, setDocuments] = useState<MaintenanceDocument[]>([]);
+  const [form] = Form.useForm<any>();
+  const [cityOptions, setCityOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [provinceOptions, setProvinceOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [selected, setSelected] = useState<MaintenanceItem | null>(null);
+
+  useEffect(() => {
+    void Promise.all([bizCities(), bizProvinces()])
+      .then(([cityResult, provinceResult]) => {
+        setCityOptions(cityResult.items.map((city) => ({ value: city.name, label: city.name })));
+        setProvinceOptions(provinceResult.items.map((province) => ({ value: province.name, label: province.name })));
+      })
+      .catch(() => message.error('地市字典加载失败'));
+  }, []);
+
   const canDelete = useBizPermission('maintenance.data.delete');
-  const load=async(nextPage=1,nextFilters=filters)=>{setLoading(true);try{const r=await maintenanceList(kind,{...nextFilters,page:nextPage,pageSize:50});setItems(r.items);setTotal(r.total);setPage(nextPage);}catch(e){message.error('维护数据加载失败');}finally{setLoading(false);}}; useEffect(()=>{void load(1);},[kind]);
-  const sections=formSections(kind); const submit=async()=>{try{const v=await form.validateFields(); const payload={...v,documentFileIds:documentIds}; if(editing) await maintenanceUpdate(kind,editing.id,payload); else await maintenanceCreate(kind,payload); message.success('保存成功，资料已关联');setOpen(false);form.resetFields();setDocumentIds([]);setEditing(null);void load();}catch(e){message.error('保存失败，请检查字段');}};
-  const uploadCategory=(field:string) => kind==='personnel' ? (field==='idCard'?'idCard':/Cert/i.test(field)?field.replace(/Expiry$/i,''):/employerLiability/i.test(field)?'employerLiabilityInsurance':/Insurance|Amount|Policy|Expiry/i.test(field)?'teamAccidentInsurance':'idCard') : kind==='vehicles' ? (field==='drivingLicense'?'drivingLicense':/compulsoryInsurance/i.test(field)?'compulsoryInsurance':/commercialInsurance/i.test(field)?'commercialInsurance':'maintenanceRecord') : (field==='lastMaintenanceUploadAt'?'maintenanceRecord':'generatorDocument');
-  const canUploadForField=(sectionKey:string, field:string) => {
+
+  const load = async (nextPage = 1, nextFilters = filters, nextPageSize = pageSize) => {
+    setLoading(true);
+    try {
+      const result = await maintenanceList(kind, { ...nextFilters, page: nextPage, pageSize: nextPageSize });
+      setItems(result.items);
+      setTotal(result.total);
+      setPage(nextPage);
+      setPageSize(nextPageSize);
+    } catch { message.error('维护数据加载失败'); } finally { setLoading(false); }
+  };
+
+  /**
+   * 区县下拉改服务端 distinct。
+   * 原实现是 `Array.from(new Set(items.map(row => row.orgRegion)))` —— 只覆盖当前页 50 条，
+   * 翻页后选项跟着变，别的区县永远选不到。
+   */
+  useEffect(() => {
+    setFacets(undefined);
+    void maintenanceFacets(kind).then(setFacets).catch(() => undefined);
+  }, [kind]);
+
+  useEffect(() => { void load(1); }, [kind]);
+  useEffect(() => { setSelected(null); }, [kind]);
+
+  /**
+   * 导出：用户点导出才按 100/页 拉全量（翻页循环只出现在这里，列表本身永远是单次分页请求）。
+   * 列取详情口径的全字段，导出中文化交给 exportPageRows。
+   */
+  const exportRows = async () => {
+    setExporting(true);
+    try {
+      const rows: MaintenanceItem[] = [];
+      for (let nextPage = 1; ; nextPage++) {
+        const result = await maintenanceList(kind, { ...filters, page: nextPage, pageSize: 100 });
+        rows.push(...result.items);
+        if (!result.items.length || rows.length >= result.total) break;
+      }
+      const scopeLabel = [filters.orgProvince, filters.orgCity, filters.orgRegion].filter(Boolean).join(' / ') || '全部组织';
+      exportPageRows(`维护-${configs[kind].label}`, rows, scopeLabel, views[kind].detail.map(([name]) => name));
+      message.success(`已导出 ${rows.length} 条`);
+    } catch { message.error('导出失败，请稍后重试'); } finally { setExporting(false); }
+  };
+
+  const sections = formSections(kind);
+  const submit = async () => {
+    try {
+      const values = await form.validateFields();
+      const payload = { ...values, documentFileIds: documentIds };
+      if (editing) await maintenanceUpdate(kind, editing.id, payload); else await maintenanceCreate(kind, payload);
+      message.success('保存成功，资料已关联'); setOpen(false); form.resetFields(); setDocumentIds([]); setEditing(null); void load(page);
+    } catch { message.error('保存失败，请检查字段'); }
+  };
+  const uploadCategory = (field: string) => kind === 'personnel' ? (field === 'idCard' ? 'idCard' : /Cert/i.test(field) ? field.replace(/Expiry$/i, '') : /employerLiability/i.test(field) ? 'employerLiabilityInsurance' : /Insurance|Amount|Policy|Expiry/i.test(field) ? 'teamAccidentInsurance' : 'idCard') : kind === 'vehicles' ? (field === 'drivingLicense' ? 'drivingLicense' : /compulsoryInsurance/i.test(field) ? 'compulsoryInsurance' : /commercialInsurance/i.test(field) ? 'commercialInsurance' : 'maintenanceRecord') : (field === 'lastMaintenanceUploadAt' ? 'maintenanceRecord' : 'generatorDocument');
+  const canUploadForField = (sectionKey: string, field: string) => {
     if (sectionKey === 'certificates') return !/Expiry$/i.test(field);
     if (sectionKey === 'insurance') return field === 'employerLiabilityAmount' || field === 'teamAccidentAmount';
     if (kind === 'vehicles' && sectionKey === 'maintenance') return field === 'compulsoryInsurancePolicyNo' || field === 'commercialInsurancePolicyNo';
     if (kind === 'generators' && sectionKey === 'maintenance') return field === 'lastMaintenanceUploadAt';
     return false;
   };
-  const handleUpload=async(field:string,file:File)=>{try{const result=await maintenanceUploadDocument(kind,uploadCategory(field),file);setDocumentIds(ids=>[...ids,result.id]);setDocuments(rows=>[...rows,{id:result.id,category:result.category,fileName:result.fileName,mimeType:result.mimeType,fileSize:result.fileSize}]);if(result.fields.length){const values=mapOcrFields(kind,uploadCategory(field),result.fields);form.setFieldsValue(values);}if(result.extractionError) message.warning(`文件已保存，识别失败：${result.extractionError}`);else if(!result.ocrAvailable) message.warning('文件已保存；当前未配置OCR密钥，请手工填写后保存');else message.success(result.fields.length?'已识别并回填，请复核后保存':'已完成文字识别，请核对内容并手工填写对应字段');}catch{message.error('资料上传失败，请检查文件格式和大小');}return false;};
+  const handleUpload = async (field: string, file: File) => {
+    try {
+      const result = await maintenanceUploadDocument(kind, uploadCategory(field), file);
+      setDocumentIds((ids) => [...ids, result.id]);
+      setDocuments((rows) => [...rows, { id: result.id, category: result.category, fileName: result.fileName, mimeType: result.mimeType, fileSize: result.fileSize }]);
+      if (result.fields.length) { const values = mapOcrFields(kind, uploadCategory(field), result.fields); form.setFieldsValue(values); }
+      if (result.extractionError) message.warning(`文件已保存，识别失败：${result.extractionError}`);
+      else if (!result.ocrAvailable) message.warning('文件已保存；当前未配置OCR密钥，请手工填写后保存');
+      else message.success(result.fields.length ? '已识别并回填，请复核后保存' : '已完成文字识别，请核对内容并手工填写对应字段');
+    } catch { message.error('资料上传失败，请检查文件格式和大小'); }
+    return false;
+  };
 
-  const [selected, setSelected] = useState<MaintenanceItem | null>(null);
-  useEffect(() => { setSelected(null); }, [kind]);
-  const view=views[kind];
-  const dataColumns:TableColumnsType<MaintenanceItem> = view.main.map(([dataIndex,title])=>({ key:dataIndex, dataIndex, title, ellipsis:true, render:dataIndex===view.primary[0]?(v:string,row:MaintenanceItem)=><Button type="link" style={{ padding: 0 }} onClick={() => setSelected(row)}>{cellText(v)}</Button>:cellText }));
-  const openEdit=(row:MaintenanceItem)=>{setEditing(row);form.setFieldsValue(row);setDocumentIds([]);setDocuments([]);setOpen(true);void maintenanceListDocuments(kind,row.id).then(setDocuments).catch(()=>message.error('附件列表加载失败'));};
-  const downloadDocument=async(file:MaintenanceDocument)=>{try{const blob=await maintenanceDownloadDocument(kind,file.id);const url=URL.createObjectURL(blob);const anchor=window.document.createElement('a');anchor.href=url;anchor.download=file.fileName;anchor.click();URL.revokeObjectURL(url);}catch{message.error('资料下载失败');}};
-  const columns:TableColumnsType<MaintenanceItem> = [...dataColumns,
-    {title:'状态',dataIndex:'status',render:(v:string)=><Tag color={v==='active'?'green':'default'}>{v==='active'?'启用':'停用'}</Tag>},
-    {title:'操作',render:(_:unknown,row:MaintenanceItem)=><Space><Button size="small" onClick={()=>openEdit(row)}>编辑</Button>{canDelete && <Button danger size="small" onClick={()=>Modal.confirm({title:`删除${configs[kind].label}`,content:'删除后该记录将从列表中隐藏，可由数据恢复流程处理。确定继续吗？',okText:'删除',okButtonProps:{danger:true},cancelText:'取消',onOk:async()=>{await maintenanceRemove(kind,row.id);message.success('已删除');void load(page);}})}>删除</Button>}</Space>}];
-  return <Card title="维护管理" extra={<Button type="primary" onClick={()=>{setSelected(null);setEditing(null);form.resetFields();setOpen(true);}}>新增{configs[kind].label}</Button>}>
+  const view = views[kind];
+  const isMaskedField = (name: string) => MASKED_FIELDS.includes(name) && String((editing as Record<string, unknown> | null)?.[name] ?? '').includes('****');
+  const dataColumns: TableColumnsType<MaintenanceItem> = view.main.map(([dataIndex, title]) => ({
+    key: dataIndex, dataIndex, title, ellipsis: true, width: 140,
+    render: dataIndex === view.primary[0]
+      ? (value: string, row: MaintenanceItem) => <Button type="link" style={{ padding: 0 }} onClick={() => setSelected(row)}>{cellText(value)}</Button>
+      : (value: unknown) => cellText(value),
+  }));
+  const openEdit = (row: MaintenanceItem) => {
+    setEditing(row); form.setFieldsValue(row); setDocumentIds([]); setDocuments([]); setOpen(true);
+    void maintenanceListDocuments(kind, row.id).then(setDocuments).catch(() => message.error('附件列表加载失败'));
+  };
+  const downloadDocument = async (file: MaintenanceDocument) => {
+    try {
+      const blob = await maintenanceDownloadDocument(kind, file.id);
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url; anchor.download = file.fileName; anchor.click(); URL.revokeObjectURL(url);
+    } catch { message.error('资料下载失败'); }
+  };
+  const columns: TableColumnsType<MaintenanceItem> = [...dataColumns,
+    { title: '状态', dataIndex: 'status', width: 90, render: (value: string) => <Tag color={value === 'active' ? 'green' : 'default'}>{value === 'active' ? '启用' : '停用'}</Tag> },
+    { title: '操作', width: 150, fixed: 'right', render: (_: unknown, row: MaintenanceItem) => <Space><Button size="small" onClick={() => openEdit(row)}>编辑</Button>{canDelete && <Button danger size="small" onClick={() => Modal.confirm({ title: `删除${configs[kind].label}`, content: '删除后该记录将从列表中隐藏，可由数据恢复流程处理。确定继续吗？', okText: '删除', okButtonProps: { danger: true }, cancelText: '取消', onOk: async () => { await maintenanceRemove(kind, row.id); message.success('已删除'); void load(page); } })}>删除</Button>}</Space> }];
+
+  return <Card
+    title="维护管理"
+    extra={<Space>
+      <Button icon={<DownloadOutlined />} loading={exporting} disabled={!total} onClick={() => void exportRows()}>导出 Excel</Button>
+      <Button type="primary" onClick={() => { setSelected(null); setEditing(null); form.resetFields(); setOpen(true); }}>新增{configs[kind].label}</Button>
+    </Space>}
+  >
     <Space wrap style={{ marginBottom: 16, width: '100%' }}>
-      <Input placeholder="关键词" value={filters.keyword} onChange={e=>setFilters(f=>({...f,keyword:e.target.value}))} onPressEnter={()=>void load(1)} style={{ width: 170 }} />
-      {(['orgProvince','orgCity','orgRegion'] as const).map((field)=>{
-        const label={orgProvince:'省份',orgCity:'地市',orgRegion:'区县'}[field];
-        if(field==='orgProvince') return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={provinceOptions} onChange={value=>setFilters(f=>({...f,orgProvince:value??'',orgCity:''}))} style={{width:140}} />;
-        if(field==='orgCity') return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={cityOptions} onChange={value=>setFilters(f=>({...f,orgCity:value??''}))} style={{width:140}} />;
-        const options=Array.from(new Set(items.map(row=>String(row.orgRegion??'').trim()).filter(Boolean))).map(value=>({value,label:value}));
-        return <Select key={field} allowClear showSearch optionFilterProp="label" placeholder={label} value={filters[field]||undefined} options={options} onChange={value=>setFilters(f=>({...f,orgRegion:value??''}))} style={{width:140}} />;
-      })}
-      <Button type="primary" onClick={()=>void load(1)}>筛选</Button><Button onClick={()=>{const next={keyword:'',orgProvince:'',orgCity:'',orgRegion:''};setFilters(next);void load(1,next);}}>重置</Button>
+      <Input placeholder="关键词" value={filters.keyword} onChange={(event) => setFilters((f) => ({ ...f, keyword: event.target.value }))} onPressEnter={() => void load(1)} style={{ width: 170 }} />
+      <Select allowClear showSearch optionFilterProp="label" placeholder="省份" value={filters.orgProvince || undefined} options={provinceOptions} onChange={(value) => setFilters((f) => ({ ...f, orgProvince: value ?? '', orgCity: '' }))} style={{ width: 140 }} />
+      <Select allowClear showSearch optionFilterProp="label" placeholder="地市" value={filters.orgCity || undefined} options={cityOptions} onChange={(value) => setFilters((f) => ({ ...f, orgCity: value ?? '' }))} style={{ width: 140 }} />
+      <Select allowClear showSearch optionFilterProp="label" placeholder="区县" value={filters.orgRegion || undefined} options={(facets?.regions ?? []).map((value) => ({ value, label: value }))} onChange={(value) => setFilters((f) => ({ ...f, orgRegion: value ?? '' }))} style={{ width: 160 }} />
+      <Button type="primary" onClick={() => void load(1)}>筛选</Button>
+      <Button onClick={() => { const next = { keyword: '', orgProvince: '', orgCity: '', orgRegion: '' }; setFilters(next); void load(1, next); }}>重置</Button>
     </Space>
-    <Table rowKey="id" loading={loading} dataSource={items} pagination={{total,current:page,pageSize:50,showSizeChanger:false,onChange:(nextPage)=>void load(nextPage)}} columns={columns}/>
+    <Table rowKey="id" loading={loading} dataSource={items} columns={columns} scroll={{ x: 'max-content' }}
+      pagination={{ total, current: page, pageSize, showSizeChanger: true, pageSizeOptions: PAGE_SIZES, showTotal: (value) => `共 ${value} 条`, onChange: (nextPage, nextPageSize) => void load(nextPage, filters, nextPageSize) }} />
     <Drawer title={`${configs[kind].label}详情${selected ? ` · ${cellText(selected[view.primary[0]])}` : ''}`} placement="right" width="50vw" open={selected !== null} onClose={() => setSelected(null)} mask={false} styles={{ wrapper: { maxWidth: '100vw' } }}>
       {selected && <DetailCard kind={kind} row={selected} />}
     </Drawer>
-    <Drawer title={`${editing?'编辑':'新增'}${configs[kind].label}`} placement="right" width="50vw" open={open} onClose={()=>setOpen(false)} mask={false} destroyOnClose styles={{wrapper:{maxWidth:'100vw'}}} extra={<Space><Button onClick={()=>setOpen(false)}>取消</Button><Button type="primary" onClick={()=>void submit()}>保存</Button></Space>}>
+    <Drawer title={`${editing ? '编辑' : '新增'}${configs[kind].label}`} placement="right" width="50vw" open={open} onClose={() => setOpen(false)} mask={false} destroyOnClose styles={{ wrapper: { maxWidth: '100vw' } }} extra={<Space><Button onClick={() => setOpen(false)}>取消</Button><Button type="primary" onClick={() => void submit()}>保存</Button></Space>}>
       <Form form={form} layout="vertical">
-        {documents.length>0&&<Card size="small" title="已上传资料" style={{marginBottom:16}}>{documents.map(document=><div key={document.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span>{document.fileName}</span><Button type="link" onClick={()=>void downloadDocument(document)}>下载</Button></div>)}</Card>}
-        <Tabs items={sections.map((section)=>({key:section.key,label:section.label,children:<div style={{padding: '12px 8px'}}>{section.fields.map(([name,label])=><Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key,name)&&<Upload showUploadList={false} beforeUpload={file=>{void handleUpload(name,file);return false;}} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode','name','plateNumber','generatorCode','orgProvince','orgCity','orgCompany','orgRegion'].includes(name)?[{required:true,message:`请选择或输入${label}`}]:undefined}>{name==='orgProvince'?<Select showSearch optionFilterProp="label" options={provinceOptions} placeholder="请选择省份" />:name==='orgCity'?<Select showSearch optionFilterProp="label" options={cityOptions} placeholder="请选择地市" />:<Input />}</Form.Item>)}</div>}))} />
+        {documents.length > 0 && <Card size="small" title="已上传资料" style={{ marginBottom: 16 }}>{documents.map((document) => <div key={document.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span>{document.fileName}</span><Button type="link" onClick={() => void downloadDocument(document)}>下载</Button></div>)}</Card>}
+        <Tabs items={sections.map((section) => ({
+          key: section.key,
+          label: section.label,
+          children: <div style={{ padding: '12px 8px' }}>{section.fields.map(([name, label]) => (
+            <Form.Item key={name} name={name} label={<Space>{label}{canUploadForField(section.key, name) && <Upload showUploadList={false} beforeUpload={(file) => { void handleUpload(name, file); return false; }} accept=".pdf,.jpg,.jpeg,.png,.bmp,.webp"><Button size="small">上传资料/证件</Button></Upload>}</Space>} rules={['personnelCode', 'name', 'plateNumber', 'generatorCode', 'orgProvince', 'orgCity', 'orgCompany', 'orgRegion'].includes(name) ? [{ required: true, message: `请选择或输入${label}` }] : undefined}>
+              {name === 'orgProvince'
+                ? <Select showSearch optionFilterProp="label" options={provinceOptions} placeholder="请选择省份" />
+                : name === 'orgCity'
+                  ? <Select showSearch optionFilterProp="label" options={cityOptions} placeholder="请选择地市" />
+                  : isMaskedField(name)
+                    // 掩码值只读：无权限账号看不到明文，也就不能用掩码值把库里的真值盖掉（后端同样会丢弃）
+                    ? <Tooltip title="当前账号只能查看脱敏后的号码，如需修改请联系管理员"><Input readOnly /></Tooltip>
+                    : <Input />}
+            </Form.Item>
+          ))}</div>,
+        }))} />
       </Form>
     </Drawer>
   </Card>;

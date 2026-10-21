@@ -5,10 +5,11 @@ import type {
   MaintenancePersonnelListResponse,
 } from '@biz-reporting/shared-types';
 import { Repository } from 'typeorm';
-import { conflict, idOr404, newId, requireText } from '../maintenance.crud';
+import { conflict, idOr404, isMaskedValue, maskIdCard, maskMobile, newId, requireText } from '../maintenance.crud';
 import { MaintenancePersonnelEntity } from './personnel.entity';
 import { CreatePersonnelDto, UpdatePersonnelDto } from './personnel.dto';
 import { MaintenanceDocumentService } from '../maintenance-document.service';
+import { MaintenanceScopeService } from '../maintenance-scope.service';
 import { BizAuthContext } from '../../rbac/rbac.service';
 
 @Injectable()
@@ -17,14 +18,19 @@ export class MaintenancePersonnelService {
     @InjectRepository(MaintenancePersonnelEntity)
     private readonly personnelRepository: Repository<MaintenancePersonnelEntity>,
     private readonly documents: MaintenanceDocumentService,
+    private readonly scope: MaintenanceScopeService,
   ) {}
 
+  /** 身份证 / 手机号明文需要 maintenance.sensitive.read（默认只给 admin） */
+  private canReadSensitive(auth: BizAuthContext) { return auth.isSuperAdmin || auth.permissionCodes.has('maintenance.sensitive.read'); }
+
   async create(dto: CreatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as CreatePersonnelDto & { documentFileIds?: string[] }; const entity = this.personnelRepository.create({ ...fields, personnelCode: requireText(dto.personnelCode, '人员编号'), name: requireText(dto.name, '姓名'), id: newId(), status: 'active', deletedAt: null }); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { await this.personnelRepository.delete(entity.id).catch(() => undefined); return conflict(error); } }
-  async update(id: string, dto: UpdatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as UpdatePersonnelDto & { documentFileIds?: string[] }; const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); Object.assign(entity, fields); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { return conflict(error); } }
+  async update(id: string, dto: UpdatePersonnelDto, auth: BizAuthContext) { const { documentFileIds = [], ...fields } = dto as UpdatePersonnelDto & { documentFileIds?: string[] }; const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); // 掩码值不能覆盖真值：无权限账号回传的是 3701****1234，直接写会把库里真身份证写坏
+    const patch = fields as Record<string, unknown>; for (const key of ['idCard', 'mobile']) if (isMaskedValue(patch[key])) delete patch[key]; Object.assign(entity, fields); try { const saved = await this.personnelRepository.save(entity); await this.documents.attach('personnel', saved.id, documentFileIds, auth); return saved; } catch (error) { return conflict(error); } }
   listDocuments(id: string, auth: BizAuthContext) { return this.documents.list('personnel', id, auth); }
   async remove(id: string) { const entity = idOr404(await this.personnelRepository.findOneBy({ id }), '人员'); entity.status = 'inactive'; entity.deletedAt = new Date(); await this.personnelRepository.save(entity); return { id, deleted: true }; }
 
-  async list(query: MaintenanceListQuery): Promise<MaintenancePersonnelListResponse> {
+  async list(query: MaintenanceListQuery, auth: BizAuthContext): Promise<MaintenancePersonnelListResponse> {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(query.pageSize) || 20));
     const queryBuilder = this.personnelRepository.createQueryBuilder('personnel')
@@ -42,12 +48,15 @@ export class MaintenancePersonnelService {
     if (query.orgCompany) queryBuilder.andWhere('personnel.orgCompany LIKE :orgCompany', { orgCompany: `%${query.orgCompany}%` });
     if (query.orgRegion) queryBuilder.andWhere('personnel.orgRegion LIKE :orgRegion', { orgRegion: `%${query.orgRegion}%` });
     if (query.status) queryBuilder.andWhere('personnel.status = :status', { status: query.status });
+    this.scope.apply(queryBuilder, await this.scope.resolve(auth), 'personnel');
 
     const [entities, total] = await queryBuilder
       .orderBy('personnel.updatedAt', 'DESC')
       .skip((page - 1) * pageSize)
       .take(pageSize)
       .getManyAndCount();
+
+    const sensitive = this.canReadSensitive(auth);
 
     return {
       items: entities.map((entity) => ({
@@ -59,8 +68,8 @@ export class MaintenancePersonnelService {
         account: entity.account,
         position: entity.position,
         employmentType: entity.employmentType,
-        mobile: entity.mobile,
-        idCard: entity.idCard,
+        mobile: sensitive ? entity.mobile : maskMobile(entity.mobile),
+        idCard: sensitive ? entity.idCard : maskIdCard(entity.idCard),
         lowVoltageCert: entity.lowVoltageCert,
         lowVoltageCertExpiry: entity.lowVoltageCertExpiry,
         highVoltageCert: entity.highVoltageCert,

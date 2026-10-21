@@ -19,7 +19,7 @@ import { MaintenanceGeneratorService } from './generator.service';
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class MaintenanceGeneratorController {
   constructor(private readonly service: MaintenanceGeneratorService, private readonly documents: MaintenanceDocumentService) {}
-  @Get() list(@Query() q: MaintenanceListQuery) { return this.service.list(q); }
+  @Get() list(@Query() q: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext) { return this.service.list(q, auth); }
   @Post() create(@Body() dto: CreateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
   @Patch(':id') update(@Param('id') id: string, @Body() dto: UpdateGeneratorDto, @BizAuthUser() auth: BizAuthContext) { return this.service.update(id, dto, auth); }
   @Get(':id/documents') listDocuments(@Param('id') id: string, @BizAuthUser() auth: BizAuthContext) { return this.service.listDocuments(id, auth); }

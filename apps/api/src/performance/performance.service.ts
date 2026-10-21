@@ -1,10 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import * as XLSX from 'xlsx';
 import { readWorkbookSafe } from '../common/files/workbook-policy';
 import { BizAuthContext } from '../rbac/rbac.service';
+import { AccessScopeService, type AccessScopeSnapshot } from '../rbac/access-scope.service';
+import { CityEntity } from '../main-data/city.entity';
+import { cityAliases } from '../common/org-name';
 import { PerformanceBatchEntity, PerformanceRecordEntity } from './performance.entity';
 import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entity';
 
@@ -12,8 +15,8 @@ const months = ['score1','score2','score3','score4','score5','score6','score7','
 const num = (v: unknown) => v === '' || v == null ? null : Number(v);
 @Injectable()
 export class PerformanceService {
-  constructor(@InjectRepository(PerformanceRecordEntity) private readonly repo: Repository<PerformanceRecordEntity>, @InjectRepository(PerformanceBatchEntity) private readonly batchesRepo: Repository<PerformanceBatchEntity>, @InjectRepository(BizOperationLogEntity) private readonly opLogRepo: Repository<BizOperationLogEntity>) {}
-  private ensureUpload(auth: BizAuthContext) { if (!auth.isSuperAdmin) throw new ForbiddenException('仅超级管理员可上传绩效数据'); }
+  constructor(@InjectRepository(PerformanceRecordEntity) private readonly repo: Repository<PerformanceRecordEntity>, @InjectRepository(PerformanceBatchEntity) private readonly batchesRepo: Repository<PerformanceBatchEntity>, @InjectRepository(BizOperationLogEntity) private readonly opLogRepo: Repository<BizOperationLogEntity>, @InjectRepository(CityEntity) private readonly cityRepo: Repository<CityEntity>, private readonly accessScope: AccessScopeService) {}
+  private ensureUpload(auth: BizAuthContext) { if (!auth.isSuperAdmin && !auth.permissionCodes.has('performance.upload.create')) throw new ForbiddenException('仅具备「绩效数据上传」权限的账号可上传绩效数据'); }
   async upload(file: Express.Multer.File, auth: BizAuthContext, assessmentYear?: number) {
     this.ensureUpload(auth); if (!file.originalname.toLowerCase().endsWith('.xlsx')) throw new BadRequestException('仅支持 .xlsx 文件');
     const year = Number(assessmentYear);
@@ -43,9 +46,37 @@ export class PerformanceService {
     }
     return { batchId: batch.id, totalRows: entities.length };
   }
-  private scoped(auth: BizAuthContext) { const qb = this.repo.createQueryBuilder('p').where('1=1'); if (!auth.isSuperAdmin && auth.cityId) qb.andWhere('(p.organization = :city OR p.organization LIKE :cityLike)', { city: auth.cityId, cityLike: `%${auth.cityId}%` }); return qb; }
+  /**
+   * 数据范围：把账号绑定的地市 UUID 换成地市**名称**，再去匹配绩效表的 city 列。
+   *
+   * 原实现是 `p.organization LIKE '%<cityId>%'`，拿 UUID 去 LIKE 中文列，永远匹配不到，
+   * 地市账号因此看不到任何数据。绩效表 city 存的是「东营」（不带市），
+   * 字典里是「东营市」，所以两种写法都要试。
+   *
+   * 返回 null 表示不过滤；返回空数组表示无范围（查空集）。
+   */
+  private async scopedCityNames(auth: BizAuthContext): Promise<string[] | null> {
+    if (auth.isSuperAdmin || auth.dataScope.allowAll || auth.dataScope.scopeType === 'all') return null;
+    const ids = await this.accessScope.expandProvinceCities(auth.dataScope as unknown as AccessScopeSnapshot);
+    if (ids === null) return null;
+    const set = new Set(ids);
+    if (auth.dataScope.cityId) set.add(auth.dataScope.cityId);
+    if (!set.size) return [];
+    const cities = await this.cityRepo.findBy({ id: In([...set]) });
+    const names = new Set<string>();
+    for (const city of cities) for (const alias of cityAliases(city.name)) names.add(alias);
+    return [...names];
+  }
+
+  private async scoped(auth: BizAuthContext) {
+    const qb = this.repo.createQueryBuilder('p').where('1 = 1');
+    const cityNames = await this.scopedCityNames(auth);
+    if (cityNames === null) return qb;
+    if (!cityNames.length) return qb.andWhere('1 = 0');
+    return qb.andWhere('p.city IN (:...scopeCityNames)', { scopeCityNames: cityNames });
+  }
   async monthly(q: Record<string, string>, auth: BizAuthContext) {
-    const allRows = await this.scoped(auth).getMany();
+    const allRows = await (await this.scoped(auth)).getMany();
     const year = Number(q.year) || new Date().getFullYear();
     const month = Math.min(12, Math.max(1, Number(q.month) || 7));
     const key = months[month - 1];
@@ -100,9 +131,15 @@ export class PerformanceService {
       years: [...new Set(allRows.map((row) => row.assessmentYear))].sort((a, b) => b - a),
     };
   }
-  async overview(q: Record<string, string>, auth: BizAuthContext) { const data = await this.monthly(q, auth); return { ...data, scope: auth.isSuperAdmin ? 'all' : auth.cityId }; }
+  /** scope 文案用中文地市名，不回传 UUID（导出表头/页面说明都会用到） */
+  async overview(q: Record<string, string>, auth: BizAuthContext) {
+    const data = await this.monthly(q, auth);
+    const cityNames = await this.scopedCityNames(auth);
+    const names = cityNames === null ? null : [...new Set(cityNames.map((name) => name.replace(/市$/, '')))];
+    return { ...data, scope: names === null ? '全部地市' : (names.join('、') || '无范围') };
+  }
   async batches(auth: BizAuthContext) {
-    this.ensureUpload(auth);
+    // 权限由控制器上的 performance.upload.read 判定；这里不再写死「仅超管」
     try {
       return await this.batchesRepo.find({ order: { uploadedAt: 'DESC' }, take: 30 });
     } catch {

@@ -807,6 +807,18 @@ async function inspectState(version) {
       "SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'biz_assessment_record' AND index_name = 'idx_biz_assessment_cover' AND column_name = 'eval_method'",
     ).then((count) => Number(count) > 0 ? 'satisfied' : 'empty');
   }
+  if (version === '045_biz_performance_permissions') {
+    // 判据：5 个权限点全部存在，且 admin/city_user 的授权行数达到预期（admin 3 条 + city_user 2 条）
+    if (!await adapter.tableExists('biz_permissions') || !await adapter.tableExists('biz_role_permissions')) return 'empty';
+    const permissionCount = await adapter.scalar(
+      "SELECT COUNT(*) FROM biz_permissions WHERE code IN ('performance.overview.read','performance.overview.export','performance.upload.read','performance.upload.create','maintenance.sensitive.read')",
+    );
+    if (Number(permissionCount) < 5) return 'empty';
+    const grantCount = await adapter.scalar(
+      "SELECT COUNT(*) FROM biz_role_permissions WHERE permission_code IN ('performance.overview.read','performance.overview.export','maintenance.sensitive.read') AND role_id IN ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000004')",
+    );
+    return Number(grantCount) >= 5 ? 'satisfied' : 'empty';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

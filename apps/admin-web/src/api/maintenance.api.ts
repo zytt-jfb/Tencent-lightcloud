@@ -24,6 +24,11 @@ export type MaintenanceOverview = {
 export async function maintenanceOverview(windowDays = 30): Promise<MaintenanceOverview> {
   return (await request.get('/biz/maintenance/overview', { params: { windowDays } })).data as MaintenanceOverview;
 }
+/** 筛选项字典（服务端 distinct）：区县/地市/公司下拉不再取自「当前页 50 条」 */
+export type MaintenanceFacets = { provinces: string[]; cities: string[]; companies: string[]; regions: string[] };
+export async function maintenanceFacets(kind: 'personnel'|'vehicles'|'generators'): Promise<MaintenanceFacets> {
+  return (await request.get(`/biz/maintenance/${kind}/facets`)).data as MaintenanceFacets;
+}
 export type MaintenanceDocument = { id: string; category: string; fileName: string; mimeType: string; fileSize: number; createdAt?: string };
 export type MaintenanceDocumentUpload = MaintenanceDocument & { extractedText: string; fields: Array<{ key: string; text: string }>; ocrAvailable: boolean; extractionError?: string | null };
 export async function maintenanceUploadDocument(kind: 'personnel'|'vehicles'|'generators', category: string, file: File): Promise<MaintenanceDocumentUpload> {

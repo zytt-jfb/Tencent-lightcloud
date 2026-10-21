@@ -20,3 +20,32 @@ export function requireText(value: unknown, label: string): string { const text 
 export function idOr404<T extends { id: string }>(item: T | null, label: string): T { if (!item) throw new NotFoundException(`${label}不存在`); return item; }
 export function newId() { return randomUUID(); }
 export function conflict(error: unknown): never { if ((error as { code?: string })?.code === 'ER_DUP_ENTRY' || (error as { code?: string })?.code === 'SQLITE_CONSTRAINT_UNIQUE') throw new ConflictException('业务编号已存在'); throw error; }
+
+/**
+ * 敏感字段掩码。
+ * 与权限点 maintenance.sensitive.read 配套：未授权账号在列表/详情里看到的是掩码，
+ * 授权账号（默认只给 admin）看明文。
+ */
+export const MASK = '****';
+
+export function maskIdCard(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return text;
+  if (text.length <= 8) return MASK;
+  return `${text.slice(0, 4)}${MASK}${text.slice(-4)}`;
+}
+
+export function maskMobile(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return text;
+  if (text.length <= 4) return MASK;
+  if (text.length <= 7) return `${text.slice(0, 2)}${MASK}`;
+  return `${text.slice(0, 3)}${MASK}${text.slice(-4)}`;
+}
+
+/** 前端回传的字段如果还是掩码，说明用户没权限看到明文，也不能用它覆盖库里的真值 */
+export function isMaskedValue(value: unknown): boolean {
+  return typeof value === 'string' && value.includes(MASK);
+}

@@ -30,6 +30,13 @@ export const BizPermissionCode = {
   MAINTENANCE_ASSET_ENTER: 'maintenance.asset.enter',
   MAINTENANCE_PERSONNEL_ENTER: 'maintenance.personnel.enter',
   MAINTENANCE_DATA_DELETE: 'maintenance.data.delete',
+  /** 身份证 / 手机号等敏感字段的明文查看（未授予者读到掩码） */
+  MAINTENANCE_SENSITIVE_READ: 'maintenance.sensitive.read',
+  // 维护管理 - 月度考核（与后评估是两套数据、两套算法，权限点也分开）
+  PERFORMANCE_OVERVIEW_READ: 'performance.overview.read',
+  PERFORMANCE_OVERVIEW_EXPORT: 'performance.overview.export',
+  PERFORMANCE_UPLOAD_READ: 'performance.upload.read',
+  PERFORMANCE_UPLOAD_CREATE: 'performance.upload.create',
   // 工程管理 - 后评估管理
   ASSESSMENT_OVERVIEW_READ: 'assessment.overview.read',
   ASSESSMENT_OVERVIEW_EXPORT: 'assessment.overview.export',

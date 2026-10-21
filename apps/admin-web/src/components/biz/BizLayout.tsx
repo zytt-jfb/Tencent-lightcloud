@@ -200,18 +200,33 @@ export default function BizLayout() {
   const isMaintenanceModule = location.pathname.startsWith('/biz/maintenance') || location.pathname.startsWith('/biz/performance');
   const isSystemModule = ['/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const moduleName = isEngineeringModule ? '工程管理' : isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
+  /**
+   * 维护管理侧栏：从写死数组改成按权限码过滤。
+   * 原来的问题是「绩效上传」对所有登录账号可见，但后端只允许超管上传 → 普通账号点进去必然 403。
+   * 现在菜单与接口共用同一套权限点（迁移 045 引入 performance.*）：
+   *   performance.overview.read  → 月度分数 / 绩效总览（admin、city_user 默认有）
+   *   performance.upload.read    → 绩效上传（默认只有超管）
+   */
+  const maintenanceLeaves = filterByPermission([
+    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined />, permission: 'maintenance.operation.enter' },
+    { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined />, permission: 'maintenance.operation.enter' },
+    { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined />, permission: 'maintenance.operation.enter' },
+  ], permSet, isSuper, me?.roleCode) as Array<{ key: string; label: string; icon?: React.ReactNode }>;
+  const performanceScoreItems = filterByPermission([
+    { key: '/biz/performance/monthly-score', label: '月度分数', permission: 'performance.overview.read' },
+    { key: '/biz/performance/overview', label: '绩效总览', permission: 'performance.overview.read' },
+  ], permSet, isSuper, me?.roleCode);
+  const performanceUploadItems = filterByPermission([
+    { key: '/biz/performance/upload', label: '绩效上传', permission: 'performance.upload.read' },
+  ], permSet, isSuper, me?.roleCode);
+  const personnelLeaf = maintenanceLeaves.filter((item) => item.key === '/biz/maintenance/personnel');
+  const assetLeaves = maintenanceLeaves.filter((item) => item.key !== '/biz/maintenance/personnel');
+  const performanceLeaves = [...performanceScoreItems, ...performanceUploadItems];
   const standaloneMaintenanceItems: MenuProps['items'] = [
     { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
-    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined /> },
-    { key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: [
-      { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined /> },
-      { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined /> },
-    ] },
-    { key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: [
-      { key: '/biz/performance/monthly-score', label: '月度分数' },
-      { key: '/biz/performance/overview', label: '绩效总览' },
-      { key: '/biz/performance/upload', label: '绩效上传' },
-    ] },
+    ...personnelLeaf,
+    ...(assetLeaves.length > 0 ? [{ key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: assetLeaves }] : []),
+    ...(performanceLeaves.length > 0 ? [{ key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: performanceLeaves }] : []),
   ];
   // 移动端与桌面端保持同一层级，避免两种导航结构产生不同入口。
   const mobileMenuItems: MenuProps['items'] = [

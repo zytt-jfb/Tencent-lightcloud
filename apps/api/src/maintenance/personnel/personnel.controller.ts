@@ -24,8 +24,8 @@ export class MaintenancePersonnelController {
   constructor(private readonly service: MaintenancePersonnelService, private readonly documents: MaintenanceDocumentService) {}
 
   @Get()
-  list(@Query() query: MaintenanceListQuery): Promise<MaintenancePersonnelListResponse> {
-    return this.service.list(query);
+  list(@Query() query: MaintenanceListQuery, @BizAuthUser() auth: BizAuthContext): Promise<MaintenancePersonnelListResponse> {
+    return this.service.list(query, auth);
   }
 
   @Post() create(@Body() dto: CreatePersonnelDto, @BizAuthUser() auth: BizAuthContext) { return this.service.create(dto, auth); }
