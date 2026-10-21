@@ -1,6 +1,8 @@
 import { BadRequestException, Controller, Get, Param, Query, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { BizAuthGuard } from '../biz-auth/biz-auth.guard';
+import { BizPermissions } from '../biz-auth/biz-permissions.decorator';
+import { BizPermissionsGuard } from '../biz-auth/biz-permissions.guard';
 import { BizAuthUser } from '../biz-auth/biz-auth-user.decorator';
 import { BizAuthContext } from '../rbac/rbac.service';
 import {
@@ -18,8 +20,14 @@ function assertKind(kind: string): Kind {
 }
 
 /**
- * 维护管理数据总览 + 筛选项字典。
+ * 维护管理数据总览 + 到期台账 + 筛选项字典。
  * 改造前总览靠前端逐页翻表（38 次请求 / 约 2.7MB）算 4 个数字，现在一次返回。
+ *
+ * 权限：本控制器返回的是人员/车辆/油机的明细与组织分布，因此不只看「登录」。
+ * 三类资产分属两个权限点（人员 = maintenance.personnel.enter，车辆/油机 = maintenance.asset.enter），
+ * 而总览/台账横跨三类，所以用「任一满足」——拥有其中任一类进入权限即可查看。
+ * 这条规则把 contract_manager（只有 maintenance.operation.enter）挡在外面：
+ * 合同角色不该看到人员证照与车辆保险明细，这与批 1 对列表接口的处理保持一致。
  */
 @Controller('biz/maintenance')
 @Public()
@@ -29,6 +37,8 @@ export class MaintenanceOverviewController {
   constructor(private readonly service: MaintenanceOverviewService) {}
 
   @Get('overview')
+  @UseGuards(BizPermissionsGuard)
+  @BizPermissions('maintenance.personnel.enter', 'maintenance.asset.enter')
   overview(@Query('windowDays') windowDays: string | undefined, @BizAuthUser() auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
     return this.service.build(windowDays === undefined ? undefined : Number(windowDays), auth);
   }
@@ -39,6 +49,8 @@ export class MaintenanceOverviewController {
    * 所以「台账 total」与「总览 counts.pending」在任何筛选条件外天然相等。
    */
   @Get('expiry-ledger')
+  @UseGuards(BizPermissionsGuard)
+  @BizPermissions('maintenance.personnel.enter', 'maintenance.asset.enter')
   expiryLedger(
     @BizAuthUser() auth: BizAuthContext,
     @Query('kind') kind?: string,
@@ -71,6 +83,8 @@ export class MaintenanceOverviewController {
 
   /** 区县 / 地市 / 公司下拉的服务端 distinct（替代原先取「当前页 50 条」的做法）；传省市可按级联收敛 */
   @Get(':kind/facets')
+  @UseGuards(BizPermissionsGuard)
+  @BizPermissions('maintenance.personnel.enter', 'maintenance.asset.enter')
   facets(
     @Param('kind') kind: string,
     @BizAuthUser() auth: BizAuthContext,

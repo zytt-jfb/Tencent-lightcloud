@@ -215,11 +215,22 @@ export default function BizLayout() {
   ], permSet, isSuper, me?.roleCode);
   const personnelLeaf = maintenanceLeaves.filter((item) => item.key === '/biz/maintenance/personnel');
   const assetLeaves = maintenanceLeaves.filter((item) => item.key !== '/biz/maintenance/personnel');
+  /**
+   * 总览与到期台账横跨三类资产，后端用「人员进入 或 资产进入」任一放行；
+   * 菜单也跟着这两个权限点走，否则 contract_manager 会看到一个点进去就 403 的入口。
+   */
+  const canSeeMaintenanceLedger = isSuper
+    || permSet.has('maintenance.personnel.enter')
+    || permSet.has('maintenance.asset.enter');
   const performanceLeaves = [...performanceScoreItems, ...performanceUploadItems];
   const standaloneMaintenanceItems: MenuProps['items'] = [
-    { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
-    // 到期台账放在总览下面：总览回答「有多少」，台账回答「是哪几条、点进去改哪里」
-    { key: '/biz/maintenance/expiry', label: '到期台账', icon: <ClockCircleOutlined /> },
+    ...(canSeeMaintenanceLedger
+      ? [
+        { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
+        // 到期台账放在总览下面：总览回答「有多少」，台账回答「是哪几条、点进去改哪里」
+        { key: '/biz/maintenance/expiry', label: '到期台账', icon: <ClockCircleOutlined /> },
+      ]
+      : []),
     ...personnelLeaf,
     ...(assetLeaves.length > 0 ? [{ key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: assetLeaves }] : []),
     ...(performanceLeaves.length > 0 ? [{ key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: performanceLeaves }] : []),
