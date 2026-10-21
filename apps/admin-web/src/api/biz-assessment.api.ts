@@ -65,6 +65,9 @@ export interface AssessmentQuery {
   evalMethod?: string;
   source?: string;
   status?: string;
+  /** 分数段下钻（闭区间），由概览页点击分布图产生 */
+  scoreMin?: number;
+  scoreMax?: number;
   page?: number;
   pageSize?: number;
 }
@@ -162,6 +165,8 @@ function toParams(query: AssessmentQuery): Record<string, unknown> {
   const params: Record<string, unknown> = {};
   if (query.months?.length) params.months = query.months.join(',');
   if (query.cityIds?.length) params.cityIds = query.cityIds.join(',');
+  if (query.scoreMin !== undefined) params.scoreMin = query.scoreMin;
+  if (query.scoreMax !== undefined) params.scoreMax = query.scoreMax;
   for (const key of ['year', 'supplierName', 'projectName', 'evalMethod', 'source', 'status', 'page', 'pageSize'] as const) {
     const value = query[key];
     if (value !== undefined && value !== null && value !== '') params[key] = value;

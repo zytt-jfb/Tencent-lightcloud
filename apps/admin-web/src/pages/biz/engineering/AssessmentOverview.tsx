@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Col, Drawer, Empty, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
+import { Button, Card, Col, Drawer, Empty, Radio, Row, Select, Space, Statistic, Table, Tabs, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { exportPageRows } from '@/utils/page-export-core';
+import ScoreDistributionChart, { SCORE_BUCKET_META, type DistributionBucket } from '@/components/charts/ScoreDistributionChart';
 import {
   assessmentExportRows, assessmentOptions, assessmentOverview, assessmentSummary,
   type AssessmentOverviewRow, type AssessmentQuery, type AssessmentSummary,
@@ -70,6 +71,13 @@ export default function AssessmentOverview() {
   const [exporting, setExporting] = useState(false);
   /** 最高分/最低分卡片的钻取抽屉：max / min / null */
   const [extremeOpen, setExtremeOpen] = useState<'max' | 'min' | null>(null);
+  /** 分布图形态：柱状 / 饼图 */
+  const [chartMode, setChartMode] = useState<'bar' | 'pie'>('bar');
+  /**
+   * 分数段下钻：只作用于「后评估明细」列表与导出。
+   * 分布图与三张聚合表保持全量口径——否则点一下柱子，图表就只剩一根，失去对比意义。
+   */
+  const [scoreRange, setScoreRange] = useState<{ min: number; max: number; label: string } | null>(null);
   /** 请求序号：只接受最后一次请求结果，避免慢响应覆盖新筛选 */
   const seqRef = useRef(0);
 
@@ -81,6 +89,12 @@ export default function AssessmentOverview() {
     evalMethod: filter.evalMethod,
     source: filter.source,
   }), [filter, onlyZhongyi]);
+
+  /** 明细列表与导出的查询：比概览多一个分数段条件 */
+  const detailQuery: AssessmentQuery = useMemo(() => ({
+    ...query,
+    ...(scoreRange ? { scoreMin: scoreRange.min, scoreMax: scoreRange.max } : {}),
+  }), [query, scoreRange]);
 
   const loadOptions = useCallback(async () => {
     try {
@@ -94,7 +108,7 @@ export default function AssessmentOverview() {
     const seq = ++seqRef.current;
     setLoading(true);
     try {
-      const result = await assessmentOverview({ ...query, page: targetPage, pageSize: targetPageSize });
+      const result = await assessmentOverview({ ...detailQuery, page: targetPage, pageSize: targetPageSize });
       if (seq !== seqRef.current) return;
       setRows(result.items);
       setTotal(result.total);
@@ -104,7 +118,7 @@ export default function AssessmentOverview() {
     } finally {
       if (seq === seqRef.current) setLoading(false);
     }
-  }, [query]);
+  }, [detailQuery]);
 
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -124,13 +138,14 @@ export default function AssessmentOverview() {
   const resetFilter = () => {
     setFilter(EMPTY_FILTER);
     setOnlyZhongyi(false);
+    setScoreRange(null);
     setPage(1);
   };
 
   const onExport = async () => {
     setExporting(true);
     try {
-      const result = await assessmentExportRows(query);
+      const result = await assessmentExportRows(detailQuery);
       if (!result.items.length) { message.warning('当前筛选没有可导出的数据'); return; }
       const limited = result.items.slice(0, 10000);
       exportPageRows('后评估概览', limited as unknown as Array<object>, filter.months.length ? filter.months.join('、') : '全部月份');
@@ -179,6 +194,27 @@ export default function AssessmentOverview() {
   ];
 
   const distributionTotal = summary?.distribution.reduce((sum, item) => sum + item.count, 0) ?? 0;
+
+  /** 把后端返回的分布映射成图表数据：段位定义（颜色 + 下钻区间）来自前端常量表 */
+  const distributionBuckets: DistributionBucket[] = useMemo(() => {
+    const counts = new Map((summary?.distribution ?? []).map((item) => [item.bucket, item.count]));
+    return SCORE_BUCKET_META.map((meta) => ({
+      label: meta.label,
+      count: counts.get(meta.label) ?? 0,
+      color: meta.color,
+      range: meta.range,
+    }));
+  }, [summary]);
+
+  /** 点击某段下钻；再次点击同一段取消 */
+  const handleBucketSelect = (bucket: DistributionBucket) => {
+    const range = bucket.range;
+    if (!range) return;
+    setScoreRange((prev) => (prev && prev.label === bucket.label
+      ? null
+      : { min: range.min, max: range.max, label: bucket.label }));
+    setPage(1);
+  };
 
   return (
     <div className="v3-content">
@@ -287,19 +323,79 @@ export default function AssessmentOverview() {
         </Col>
       </Row>
 
-      <Card size="small" style={{ marginBottom: 12 }} title="分数分布" extra={<Text type="secondary">线上 {summary?.onlineCount ?? 0} 条 / 线下 {summary?.offlineCount ?? 0} 条</Text>}>
-        {distributionTotal === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" /> : (
-          <Space wrap size={16}>
-            {(summary?.distribution ?? []).map((item) => (
-              <span key={item.bucket}>
-                <Text type="secondary">{item.bucket}</Text>
-                <Text strong style={{ marginLeft: 6 }}>{item.count}</Text>
-                <Text type="secondary" style={{ marginLeft: 4 }}>
-                  ({distributionTotal === 0 ? 0 : Math.round((item.count / distributionTotal) * 100)}%)
-                </Text>
-              </span>
-            ))}
+      <Card
+        size="small"
+        style={{ marginBottom: 12 }}
+        title="分数分布"
+        extra={
+          <Space size={12}>
+            <Radio.Group
+              size="small"
+              value={chartMode}
+              onChange={(event) => setChartMode(event.target.value as 'bar' | 'pie')}
+              optionType="button"
+              buttonStyle="solid"
+            >
+              <Radio.Button value="bar">柱状</Radio.Button>
+              <Radio.Button value="pie">饼图</Radio.Button>
+            </Radio.Group>
+            <Text type="secondary">线上 {summary?.onlineCount ?? 0} 条 / 线下 {summary?.offlineCount ?? 0} 条</Text>
           </Space>
+        }
+      >
+        {distributionTotal === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" /> : (
+          <Row gutter={16} align="middle">
+            <Col xs={24} xl={15}>
+              <ScoreDistributionChart
+                buckets={distributionBuckets}
+                total={distributionTotal}
+                mode={chartMode}
+                selectedLabel={scoreRange?.label ?? null}
+                onSelect={handleBucketSelect}
+                height={240}
+              />
+            </Col>
+            <Col xs={24} xl={9}>
+              {distributionBuckets.map((bucket) => {
+                const percent = distributionTotal === 0 ? 0 : (bucket.count / distributionTotal) * 100;
+                const selected = scoreRange?.label === bucket.label;
+                const dimmed = scoreRange != null && !selected;
+                return (
+                  <div
+                    key={bucket.label}
+                    onClick={() => handleBucketSelect(bucket)}
+                    title={bucket.range ? '点击按该分数段筛选明细' : undefined}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '5px 6px',
+                      borderRadius: 4,
+                      cursor: bucket.range ? 'pointer' : 'default',
+                      background: selected ? '#e6f4ff' : 'transparent',
+                      opacity: dimmed ? 0.45 : 1,
+                    }}
+                  >
+                    <span style={{ width: 10, height: 10, borderRadius: 2, background: bucket.color, flex: 'none' }} />
+                    <Text style={{ width: 76, whiteSpace: 'nowrap' }}>{bucket.label}</Text>
+                    <Text strong style={{ marginLeft: 'auto', whiteSpace: 'nowrap' }}>{bucket.count.toLocaleString('zh-CN')}</Text>
+                    <Text type="secondary" style={{ width: 48, textAlign: 'right' }}>{percent.toFixed(1)}%</Text>
+                  </div>
+                );
+              })}
+              {scoreRange && (
+                <div style={{ marginTop: 8 }}>
+                  <Tag
+                    color="blue"
+                    closable
+                    onClose={() => { setScoreRange(null); setPage(1); }}
+                  >
+                    已按 {scoreRange.label} 筛选明细
+                  </Tag>
+                </div>
+              )}
+            </Col>
+          </Row>
         )}
       </Card>
 
@@ -335,7 +431,15 @@ export default function AssessmentOverview() {
         />
       </Card>
 
-      <Card size="small" title={`后评估明细（${total} 条）`}>
+      <Card
+        size="small"
+        title={`后评估明细（${total} 条）`}
+        extra={scoreRange ? (
+          <Tag color="blue" closable onClose={() => { setScoreRange(null); setPage(1); }}>
+            分数段 {scoreRange.label}
+          </Tag>
+        ) : null}
+      >
         <Table
           rowKey="id"
           size="small"

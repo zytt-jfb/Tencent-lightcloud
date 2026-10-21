@@ -24,8 +24,32 @@ function toArray(value: unknown): string[] | undefined {
   return String(value).split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+/** 分数合法范围：与录入校验一致（0-150，允许加分项） */
+const SCORE_LIMIT = 150;
+
+/**
+ * 解析分数段参数。非法值直接报错，而不是静默忽略——
+ * 静默忽略会让页面显示「已按分数段筛选」但实际没筛，比报错更难排查。
+ */
+function toScoreRange(query: Record<string, unknown>): { scoreMin?: number; scoreMax?: number } {
+  const parse = (raw: unknown, field: string): number | undefined => {
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) throw new BadRequestException(`${field} 必须是数字`);
+    if (value < 0 || value > SCORE_LIMIT) throw new BadRequestException(`${field} 必须在 0-${SCORE_LIMIT} 之间`);
+    return value;
+  };
+  const scoreMin = parse(query.scoreMin, 'scoreMin');
+  const scoreMax = parse(query.scoreMax, 'scoreMax');
+  if (scoreMin !== undefined && scoreMax !== undefined && scoreMin > scoreMax) {
+    throw new BadRequestException('scoreMin 不能大于 scoreMax');
+  }
+  return { scoreMin, scoreMax };
+}
+
 function toFilter(query: Record<string, unknown>): AssessmentQueryFilter {
   return {
+    ...toScoreRange(query),
     months: toArray(query.months),
     year: query.year ? String(query.year) : undefined,
     cityIds: toArray(query.cityIds),

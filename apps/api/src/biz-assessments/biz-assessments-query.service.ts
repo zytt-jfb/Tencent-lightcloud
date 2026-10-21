@@ -17,6 +17,9 @@ export interface AssessmentQueryFilter {
   evalMethod?: string;
   source?: string;
   status?: string;
+  /** 分数段下钻：闭区间 [scoreMin, scoreMax]，两者都可单独给 */
+  scoreMin?: number;
+  scoreMax?: number;
   page?: number;
   pageSize?: number;
 }
@@ -159,6 +162,9 @@ export class BizAssessmentsQueryService {
     if (filter.projectName?.trim()) qb.andWhere(`${alias}.projectName LIKE :projectLike`, { projectLike: `%${filter.projectName.trim()}%` });
     if (filter.evalMethod) qb.andWhere(`${alias}.evalMethod = :evalMethod`, { evalMethod: filter.evalMethod });
     if (filter.source) qb.andWhere(`${alias}.source = :source`, { source: filter.source });
+    // 分数段下钻：分数列是 DECIMAL(6,2)，区间边界用两位小数即可覆盖
+    if (filter.scoreMin !== undefined) qb.andWhere(`${alias}.score >= :scoreMin`, { scoreMin: filter.scoreMin });
+    if (filter.scoreMax !== undefined) qb.andWhere(`${alias}.score <= :scoreMax`, { scoreMax: filter.scoreMax });
     return qb;
   }
 
