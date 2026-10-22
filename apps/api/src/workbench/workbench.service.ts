@@ -109,7 +109,7 @@ export interface WorkbenchSummaryAssessment {
   monthAvgScore: number | null;
   /** 本月平均名次 = 各项目「同项目同月」名次的算术平均；无可用名次时 null */
   avgMonthRank: number | null;
-  /** 参与统计的项目数 */
+  /** 参与统计的项目数（**本月有数据**的项目；累计口径会把上月有、本月没数据的项目也算进来） */
   projectCount: number;
   /** 其中能算出名次的项目数（仅一家供应商的项目没有相对排名） */
   rankedProjectCount: number;
@@ -337,7 +337,11 @@ export class WorkbenchService {
     let scoreCount = 0;
     let rankSum = 0;
     let rankedProjectCount = 0;
+    let projectCount = 0;
     for (const row of card.rows) {
+      // 只算本月真的有数据的项目：累计口径里那些「上月有、本月没报」的项目 monthCount=0，
+      // 计入分母会让卡片显示成「14/41 个项目」，观众会误以为一大半项目没排名
+      if (row.monthCount > 0) projectCount += 1;
       scoreSum += row.monthScore;
       scoreCount += row.monthCount;
       if (row.monthRank !== null) {
@@ -350,7 +354,7 @@ export class WorkbenchService {
       supplier,
       monthAvgScore: scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 100) / 100 : null,
       avgMonthRank: rankedProjectCount > 0 ? Math.round((rankSum / rankedProjectCount) * 100) / 100 : null,
-      projectCount: card.rows.length,
+      projectCount,
       rankedProjectCount,
     };
   }
