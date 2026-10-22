@@ -311,6 +311,26 @@ export default function SupplierScorecardPage() {
   ], [data?.month, supplier]);
 
   const totals = data?.totals;
+  /**
+   * 本月口径单独算一遍：后端 totals 里 projectCount / avgScore 都是**累计**口径（含本月没报数据的项目），
+   * 直接和「本月合计」并排摆着会被读成同一时点，导致 41 vs 20、96.41 vs 94.88 这类疑问。
+   * 本月数字按 rows 里 monthCount > 0 的项目与明细条数现算，与工作台摘要卡同源同口径。
+   */
+  const monthStats = useMemo(() => {
+    const rows = data?.rows ?? [];
+    const count = rows.reduce((sum, row) => sum + row.monthCount, 0);
+    const score = rows.reduce((sum, row) => sum + row.monthScore, 0);
+    return {
+      projectCount: rows.filter((row) => row.monthCount > 0).length,
+      count,
+      avgScore: count > 0 ? Math.round((score / count) * 100) / 100 : 0,
+    };
+  }, [data?.rows]);
+  /** 累计区间起点：只取 <= 当前选中月份的月份，避免把"未来"月份写进口径说明 */
+  const cumulativeFrom = useMemo(() => {
+    const months = (data?.months ?? []).filter((item) => !data?.month || item <= data.month);
+    return months.length ? months[months.length - 1] : null;
+  }, [data?.months, data?.month]);
 
   return (
     <div className="v3-content assessment-scorecard">
@@ -325,7 +345,8 @@ export default function SupplierScorecardPage() {
         <div className="v3-page-titles">
           <Title level={4} style={{ margin: 0 }}>明细</Title>
           <Text type="secondary">
-            按「同项目 + 同月 + 全体供应商」排名；平均分 = 累计总分 ÷ 明细条数（加权）。点项目名看该合同的排名解剖
+            按「同项目 + 同月 + 全体供应商」排名；平均分 = 得分合计 ÷ 明细条数（加权）。
+            「本月」只算选中月份，「累计」算截至选中月份的全部月份——两套口径不要混看。点项目名看该合同的排名解剖
           </Text>
         </div>
         <Space className="v3-page-head-actions" wrap>
@@ -361,11 +382,18 @@ export default function SupplierScorecardPage() {
         </Space>
         {totals && (
           <div style={{ marginTop: 10, fontSize: 13 }}>
-            <Space size={20} wrap>
-              <span>合同数 <strong>{totals.projectCount}</strong></span>
-              <span>本月合计 <strong>{totals.monthScore.toFixed(2)}</strong></span>
-              <span>累计总分 <strong>{totals.totalScore.toFixed(2)}</strong></span>
-              <span>整体平均分 <strong>{totals.avgScore.toFixed(2)}</strong></span>
+            <Space size={18} wrap>
+              <Text type="secondary">本月（{formatMonth(data?.month)}）</Text>
+              <span>项目 <strong>{monthStats.projectCount}</strong></span>
+              <span>明细 <strong>{monthStats.count}</strong> 条</span>
+              <span>合计 <strong>{totals.monthScore.toFixed(2)}</strong></span>
+              <span>本月平均分 <strong>{monthStats.avgScore.toFixed(2)}</strong></span>
+            </Space>
+            <Space size={18} wrap style={{ marginTop: 6 }}>
+              <Text type="secondary">累计（{cumulativeFrom ? formatMonth(cumulativeFrom) : '-'} ~ {formatMonth(data?.month)}）</Text>
+              <span>项目 <strong>{totals.projectCount}</strong></span>
+              <span>总分 <strong>{totals.totalScore.toFixed(2)}</strong></span>
+              <span>累计平均分 <strong>{totals.avgScore.toFixed(2)}</strong></span>
               <span>仅一家合同 <strong>{totals.singleSupplierCount}</strong></span>
             </Space>
           </div>
