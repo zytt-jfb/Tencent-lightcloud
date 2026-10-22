@@ -761,7 +761,7 @@ export class BizSnapshotService implements OnModuleInit {
     overview: unknown;
     trend: { items: unknown[] };
     byCity: { items: unknown[] };
-    contractAlerts: { items: unknown[] };
+    contractAlerts: { items: unknown[]; windowDays: number };
     overruns: { items: unknown[] };
     snapshotMetadata: SnapshotMetadata;
   }> {
@@ -857,11 +857,15 @@ export class BizSnapshotService implements OnModuleInit {
     const trend = buildTrend(scopedMetrics, q);
     const byCity = buildByCity(scopedMetrics, contractSnapsForInventory, allContractSnaps, q, cityName, cityProvince, cityUnitType, provinceName);
 
+    // 预警窗口天数一并返回：前端要靠它解释「即将到期 33 份」与工作台 30 天卡片的差异，
+    // 硬编码在前端会和系统设置脱钩（设置一改数字就对不上）
+    const alertWindowDays = await this.getWarningDays();
     return {
       overview,
       trend: { items: trend },
       byCity: { items: byCity },
       contractAlerts: {
+        windowDays: alertWindowDays,
         items: scopedAlerts.map((a) => {
           const asOf = registry!.currentAsOf;
           return {
@@ -928,7 +932,7 @@ export class BizSnapshotService implements OnModuleInit {
       overview,
       trend: { items: visibleTrend },
       byCity: { items: byCity },
-      contractAlerts: { items: contractAlerts },
+      contractAlerts: { items: contractAlerts, windowDays: await this.getWarningDays() },
       overruns: { items: overruns },
       snapshotMetadata: {
         snapshotId: null,

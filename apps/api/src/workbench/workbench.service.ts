@@ -32,7 +32,8 @@ const ACTIVITY_LIMIT = 5;
  */
 const TODO_PREF_KEY = 'workbench.todo_keys';
 const TODO_KEYS = new Set([
-  'maintenance-expiry',
+  // 「证照与保险到期」不再作为待办：首屏摘要卡已经展示同一盘数据，
+  // 待办条里再来一条会变成"第二张一样的卡"（该账号其余待办为 0 时尤其明显）。
   'assessment-entry-draft',
   'cost-draft',
   'completion-draft',
@@ -234,8 +235,7 @@ export class WorkbenchService {
       : Promise.resolve(null);
 
     const tasks: Array<Promise<WorkbenchTodo>> = [];
-    // 总览/台账用「人员进入 或 资产进入」任一放行，工作台同口径
-    if (canMaintenance) tasks.push(maintenancePromise.then((overview) => this.maintenanceTodo(overview)));
+    // 证照/保险到期已由首屏摘要卡承担，不再进待办条（避免同一盘数据出现两次）
     if (allow('assessment.entry.read')) tasks.push(this.assessmentTodo(auth));
     if (allow('operation.cost.read')) tasks.push(this.costTodo(auth));
     if (allow('operation.completion.read')) tasks.push(this.completionTodo(auth));
@@ -406,38 +406,6 @@ export class WorkbenchService {
       ['userId', 'prefKey'],
     );
     return { todoKeys: normalized };
-  }
-
-  /** 证照/保险到期：数字必须与「到期台账」顶部的 4 张卡一致。总览由 load() 统一算一次后传入 */
-  private maintenanceTodo(overview: MaintenanceOverviewResult | null): WorkbenchTodo {
-    if (!overview) {
-      return {
-        key: 'maintenance-expiry', label: '证照与保险到期', description: '暂时无法统计',
-        count: null, level: 'info', link: '/biz/maintenance/expiry', detail: [],
-      };
-    }
-    const { expired, dueSoon, anomaly } = overview.counts;
-    const total = expired + dueSoon + anomaly;
-    // 数据质量告警：这些记录的地市匹配不上字典，地市账号永远看不到，但需要有人去修
-    const unrecognized = (overview.unrecognizedCities ?? []).reduce((sum, item) => sum + item.count, 0);
-    const detail = [
-      { label: '已过期', value: expired },
-      { label: `${overview.windowDays} 天内到期`, value: dueSoon },
-      { label: '日期异常', value: anomaly },
-    ];
-    if (unrecognized > 0) detail.push({ label: '地市无法归属', value: unrecognized });
-    return {
-      key: 'maintenance-expiry',
-      label: '证照与保险到期',
-      description: total === 0
-        ? `${overview.windowDays} 天内没有到期事项${unrecognized > 0 ? `，但有 ${unrecognized} 条记录地市匹配不上字典` : ''}`
-        : `已过期 ${expired} 条 · ${overview.windowDays} 天内到期 ${dueSoon} 条${anomaly > 0 ? ` · 日期异常 ${anomaly} 条` : ''}${unrecognized > 0 ? ` · 地市无法归属 ${unrecognized} 条` : ''}`,
-      count: total,
-      // 有过期就是红，只有临期/异常是黄，都没有才是灰
-      level: expired > 0 ? 'danger' : total > 0 ? 'warning' : 'info',
-      link: unrecognized > 0 ? '/biz/maintenance/overview' : '/biz/maintenance/expiry',
-      detail,
-    };
   }
 
   /** 后评估线下填报：草稿 + 被退回，都算「我还得动手」 */

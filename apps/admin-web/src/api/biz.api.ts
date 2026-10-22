@@ -718,7 +718,8 @@ export interface BizDashboardResult {
   };
   trend: { items: Array<Record<string, unknown>> };
   byCity: { items: Array<Record<string, unknown>> };
-  contractAlerts: { items: Array<Record<string, unknown>> };
+  /** windowDays = 后端「即将到期」的窗口天数（系统设置 contract_expiry_warning_days），前端只做展示，不参与计算 */
+  contractAlerts: { items: Array<Record<string, unknown>>; windowDays?: number };
   overruns: { items: Array<Record<string, unknown>> };
   snapshotMetadata: BizSnapshotMetadata;
 }

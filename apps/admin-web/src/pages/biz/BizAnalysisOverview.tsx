@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Card, Col, Descriptions, Drawer, Progress, Row, Select, Space, Spin, Statistic, Table, Tag, Typography, message } from 'antd';
 import {
   bizAnalysisOverviewContracts,
@@ -14,10 +14,10 @@ import {
 import { useBizSnapshot } from '@/components/biz/BizSnapshotContext';
 import { BizAnalysisFilter, EMPTY_ANALYSIS_FILTER, type AnalysisFilterValue } from '@/components/biz/BizAnalysisFilter';
 import { useBizAnalysisOptions } from '@/components/biz/BizAnalysisOptionsContext';
-import { ALERT_TYPE_OPTIONS, alertTypeLabel, normalizeAlerts, selectVisibleAlerts } from '@/utils/alert-filter';
+import { ALERT_TYPE_OPTIONS, alertTypeLabel, dedupeAlertsByContract, normalizeAlerts, selectVisibleAlerts } from '@/utils/alert-filter';
 import { DownloadOutlined } from '@ant-design/icons';
 import { writeWorkbook } from '@/utils/page-export-core';
-const { Title } = Typography;
+const { Title, Text } = Typography;
 function fenToYuan(value: number | null | undefined): string { return (Number(value ?? 0) / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 type Summary = Record<string, unknown>;
 
@@ -41,6 +41,9 @@ export default function BizAnalysisOverview() {
   const [overrunRows, setOverrunRows] = useState<Array<Record<string, unknown>>>([]);
   /** 预警类型多选：空数组 = 全部真实预警。纯前端筛选，不触发整页数据重新请求 */
   const [alertTypes, setAlertTypes] = useState<string[]>([]);
+  /** 「即将到期」的后端口径：窗口天数 + 快照基准日，用于在卡片头说明与工作台 30 天卡片的差异 */
+  const [alertWindowDays, setAlertWindowDays] = useState<number | null>(null);
+  const [alertAsOf, setAlertAsOf] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<BizContractDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -110,6 +113,8 @@ export default function BizAnalysisOverview() {
         // 过滤 none/normal，并按 contractId + alertType + cityId 去重
         // （快照按"合同 × 活跃地市分配"写入，同一合同同一类型可能出现多地市行）
         setAlerts(normalizeAlerts(d.contractAlerts?.items as Array<Record<string, unknown>>));
+        setAlertWindowDays(d.contractAlerts?.windowDays ?? null);
+        setAlertAsOf(d.snapshotMetadata?.asOf ?? null);
         setTrendRows(d.trend?.items ?? []);
         setCityRows(d.byCity?.items ?? []);
         setOverrunRows(d.overruns?.items ?? []);
@@ -133,8 +138,20 @@ export default function BizAnalysisOverview() {
     if (lastGenRef.current !== meta.generatedAt) { lastGenRef.current = meta.generatedAt; setRefreshTick((tick) => tick + 1); }
   }, [meta?.generatedAt]);
 
-  /** 预警类型筛选结果（纯前端，不发起任何请求；逻辑见 utils/alert-filter，已定向测试覆盖） */
-  const visibleAlerts = selectVisibleAlerts(alerts, alertTypes);
+  /**
+   * 预警类型筛选结果（纯前端，不发起任何请求；逻辑见 utils/alert-filter）。
+   * 这里再按「合同 + 类型」去重：快照按合同×地市逐行写入，不去重的话一份合同分给 8 个地市就显示 8 行，
+   * 用户看到的条数和「实际有多少份合同要到期」完全不是一回事（线上曾出现 115 行 / 33 份的偏差）。
+   */
+  const visibleAlerts = useMemo(
+    () => dedupeAlertsByContract(selectVisibleAlerts(alerts, alertTypes)),
+    [alerts, alertTypes],
+  );
+  /** 去重后仍可能同一合同挂了两种预警（如即将到期 + 接近满额），所以合同数单独统计 */
+  const alertContractCount = useMemo(
+    () => new Set(visibleAlerts.map((row) => String(row.contractId ?? ''))).size,
+    [visibleAlerts],
+  );
 
   /** 合同预警点击：直接在当前页打开只读合同详情 Drawer，不跳转到合同管理/合同概览列表 */
   const openContractDetail = async (contractId: string) => {
@@ -187,7 +204,28 @@ export default function BizAnalysisOverview() {
     {overview && Number(overview.totalCompletionFen) === 0 && Number(overview.totalContractAmountFen) > 0 && (
       <Alert style={{ marginTop: 8 }} type="info" showIcon message={`累计完工为 0 元（合同额 ${fenToYuan(Number(overview.totalContractAmountFen) || 0)} 元）：当前无有效订单完工或已审核线下完工记录，请确认数据是否已录入`} />
     )}
-    <Card title="合同预警" size="small" style={{ marginTop: 16 }} loading={loading} extra={<Select mode="multiple" labelInValue={false} maxTagCount="responsive" allowClear placeholder="预警类型（可多选，默认全部）" value={alertTypes} onChange={(values: string[]) => setAlertTypes(Array.isArray(values) ? values : [])} options={ALERT_TYPE_OPTIONS} style={{ width: 280 }} />}><Table<Record<string, unknown>> size="small" rowKey={(row) => `${String(row.contractId ?? '')}-${String(row.alertType ?? '')}-${String(row.cityId ?? '')}`} pagination={{ pageSize: 10 }} dataSource={visibleAlerts} locale={{ emptyText: alertTypes.length ? '暂无符合条件的预警' : '暂无预警' }} columns={[
+    <Card
+      title={(
+        <Space size={10} wrap>
+          <span>合同预警</span>
+          <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+            共 {visibleAlerts.length} 条 · 涉及 {alertContractCount} 份合同（按合同计，同一合同多地市只算一行）
+          </Text>
+        </Space>
+      )}
+      size="small"
+      style={{ marginTop: 16 }}
+      loading={loading}
+      extra={(
+        <Space size={10} wrap>
+          {alertWindowDays != null && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              「即将到期」= {alertWindowDays} 天窗口{alertAsOf ? ` · 快照基准日 ${alertAsOf}` : ''}（工作台摘要卡按 30 天实时统计，两者口径不同）
+            </Text>
+          )}
+          <Select mode="multiple" labelInValue={false} maxTagCount="responsive" allowClear placeholder="预警类型（可多选，默认全部）" value={alertTypes} onChange={(values: string[]) => setAlertTypes(Array.isArray(values) ? values : [])} options={ALERT_TYPE_OPTIONS} style={{ width: 280 }} />
+        </Space>
+      )}><Table<Record<string, unknown>> size="small" rowKey={(row) => `${String(row.contractId ?? '')}-${String(row.alertType ?? '')}-${String(row.cityId ?? '')}`} pagination={{ pageSize: 10 }} dataSource={visibleAlerts} locale={{ emptyText: alertTypes.length ? '暂无符合条件的预警' : '暂无预警' }} columns={[
       { title: '合同编号', dataIndex: 'contractNo', render: (value: string, row) => <Button type="link" size="small" onClick={() => void openContractDetail(String(row.contractId ?? ''))}>{value}</Button> },
       { title: '合同名称', dataIndex: 'contractName', ellipsis: true },
       { title: '预警类型', dataIndex: 'alertType', render: (value: string) => <span style={{ color: value === 'expired' ? '#cf1322' : value === 'expiring' ? '#fa8c16' : value === 'nearly_full' ? '#faad14' : value === 'overfull' ? '#cf1322' : '#999' }}>{alertTypeLabel(value)}</span> },

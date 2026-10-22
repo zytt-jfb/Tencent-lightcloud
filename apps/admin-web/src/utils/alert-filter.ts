@@ -50,6 +50,26 @@ export function normalizeAlerts(items: AlertRow[] | undefined | null): AlertRow[
 }
 
 /**
+ * 按「合同 + 预警类型」去重，丢掉地市维度。
+ *
+ * 为什么需要：快照表是按「合同 × 活跃地市分配」逐行写入的，一份合同分给 N 个地市就有 N 行；
+ * 经营概览要回答的是「有多少份合同要到期」，不是「有多少条地市分配」，所以只保留首次出现的那行。
+ * 与 normalizeAlerts 的区别：那个含 cityId，去不掉同一合同的多地市行；这里刻意不含。
+ */
+export function dedupeAlertsByContract(items: AlertRow[] | undefined | null): AlertRow[] {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set<string>();
+  const out: AlertRow[] = [];
+  for (const row of items) {
+    const key = `${String(row?.contractId ?? '')}|${String(row?.alertType ?? '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * 按选中的预警类型过滤。
  *  - selected 为空数组（或未选）→ 返回全部，不做任何过滤；
  *  - 否则严格按 selected.includes(String(row.alertType))，只保留命中的类型；
