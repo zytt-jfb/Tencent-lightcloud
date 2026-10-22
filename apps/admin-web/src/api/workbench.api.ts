@@ -39,10 +39,51 @@ export interface WorkbenchActivity {
   createdAt: string;
 }
 
+export interface WorkbenchSummaryContract {
+  /** 30 天内到期份数（不含已到期） */
+  expiringCount: number;
+  /** 到期日为空/脏值、无法参与判断的合同数 */
+  abnormalCount: number;
+  windowDays: number;
+}
+
+export interface WorkbenchSummaryMaintenanceKind {
+  kind: string;
+  label: string;
+  expired: number;
+  dueSoon: number;
+  anomaly: number;
+  total: number;
+}
+
+export interface WorkbenchSummaryMaintenance {
+  kinds: WorkbenchSummaryMaintenanceKind[];
+  expired: number;
+  dueSoon: number;
+  windowDays: number;
+}
+
+export interface WorkbenchSummaryAssessment {
+  month: string | null;
+  supplier: string;
+  monthAvgScore: number | null;
+  avgMonthRank: number | null;
+  projectCount: number;
+  rankedProjectCount: number;
+}
+
+/** 首屏三块盘面；null = 无权限或该模块统计失败，前端不渲染这张卡 */
+export interface WorkbenchSummary {
+  contract: WorkbenchSummaryContract | null;
+  maintenance: WorkbenchSummaryMaintenance | null;
+  assessment: WorkbenchSummaryAssessment | null;
+}
+
 export interface WorkbenchResult {
   today: string;
   windowDays: number;
   todos: WorkbenchTodo[];
+  summary: WorkbenchSummary;
   activities: WorkbenchActivity[];
 }
 

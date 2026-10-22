@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Checkbox, Empty, Popover, Result, Skeleton, Tabs, Typography, message } from 'antd';
-import { ReloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { Alert, Button, Empty, Result, Skeleton, Tabs, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { bizMe, type BizMeResult } from '@/api/biz.api';
-import { bizWorkbench, bizWorkbenchPreferences, bizSetWorkbenchPreferences, type WorkbenchResult } from '@/api/workbench.api';
+import { bizWorkbench, type WorkbenchResult, type WorkbenchSummary } from '@/api/workbench.api';
 import { NAV_GROUPS, NAV_MODULES, ROLE_LABEL, visibleLeaves } from '@/components/biz/biz-navigation';
 import { clearBizToken } from '@/utils/biz-auth';
 import { clearBizPermissionCache } from '@/utils/biz-permission';
@@ -23,9 +23,6 @@ const SCOPE_LABEL: Record<string, string> = {
   contract: '合同范围数据',
   all: '全部数据',
 };
-
-/** 待办最多展示 4 项：再多一行就挤，且用户真正每天看的不会超过 4 类 */
-const TODO_MAX = 4;
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -64,16 +61,20 @@ function WorkbenchClock() {
 /**
  * 工作台（登录后的落地页）
  *
- * 回答两件事：
- *   ① 我今天要做什么 —— 待办指标条（一行铺开，状态色区分紧急度）
- *   ② 我权限内的功能在哪 —— 功能目录（按模块分组，链接式而非按钮堆）
+ * 回答三件事：
+ *   ① 我管的盘子现在什么样 —— 数据摘要三张卡（合同即将到期 / 证照保险到期 / 后评估分数排名）
+ *   ② 我还得动手做什么 —— 精简待办条，只列非零项，全为零时整行不出现
+ *   ③ 我权限内的功能在哪 —— 功能目录（按模块分组，链接式而非按钮堆）
+ *
+ * 为什么摘要在前、待办在后：省级角色进系统先看盘面（风险/合规/绩效），
+ * 再看自己欠了什么；摘要卡没有待办时也照样有信息量，待办全为零时则不占版面。
  *
  * 视觉上刻意复用 v3 设计语言（--v3-* 变量、4px 圆角、13px 卡头、tabular-nums），
  * 与经营概览等业务页保持同一套节奏；工作台脱离 BizLayout 渲染，故整页壳层自带。
  *
  * 两个功能约束不变：
  *   · 入口清单来自 biz-navigation，与侧栏同一份数据
- *   · 待办数字由服务端按权限计算，算不出来显示「—」，绝不显示 0
+ *   · 所有数字由服务端按权限与数据范围计算，某块无权限或算不出来 → 该卡不渲染，绝不显示 0
  */
 export default function BizWorkbench() {
   const navigate = useNavigate();
@@ -82,9 +83,6 @@ export default function BizWorkbench() {
   const [workbench, setWorkbench] = useState<WorkbenchResult | null>(null);
   const [todoLoading, setTodoLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
-  /** 待办展示选择：null = 未自定义（按后端顺序取前 4 个）；持久化在 localStorage，按账号隔离 */
-  const [todoSelection, setTodoSelection] = useState<string[] | null>(null);
-  const [todoPickerOpen, setTodoPickerOpen] = useState(false);
 
   const loadTodos = useCallback(() => {
     setTodoLoading(true);
@@ -149,54 +147,10 @@ export default function BizWorkbench() {
   const todos = workbench?.todos ?? [];
   const activities = workbench?.activities ?? [];
 
-  // 待办展示偏好存在服务端（迁移 048），换设备/清缓存都不会丢
-  useEffect(() => {
-    if (!me?.id) return;
-    let active = true;
-    bizWorkbenchPreferences()
-      .then((pref) => {
-        if (!active) return;
-        if (Array.isArray(pref.todoKeys)) {
-          setTodoSelection(pref.todoKeys);
-          return;
-        }
-        // 服务端还没有记录：把旧版本存在本地浏览器里的选择迁移上去（一次性）
-        try {
-          const legacyKey = `biz.workbench.todos.${me.id}`;
-          const legacy = window.localStorage.getItem(legacyKey);
-          if (!legacy) return;
-          const parsed: unknown = JSON.parse(legacy);
-          if (!Array.isArray(parsed)) return;
-          const migrated = parsed.filter((key): key is string => typeof key === 'string');
-          if (!migrated.length) return;
-          setTodoSelection(migrated);
-          window.localStorage.removeItem(legacyKey);
-          void bizSetWorkbenchPreferences(migrated).catch(() => undefined);
-        } catch {
-          // 旧缓存损坏：忽略，按默认展示
-        }
-      })
-      .catch(() => {
-        // 读偏好失败不影响工作台主体，按默认展示
-      });
-    return () => { active = false; };
-  }, [me?.id]);
-
-  const changeTodoSelection = (keys: string[]) => {
-    const next = keys.slice(0, TODO_MAX);
-    setTodoSelection(next);
-    void bizSetWorkbenchPreferences(next).catch(() => message.error('待办偏好保存失败，请稍后再试'));
-  };
-  const resetTodoSelection = () => {
-    setTodoSelection(null);
-    void bizSetWorkbenchPreferences(null).catch(() => message.error('待办偏好保存失败，请稍后再试'));
-  };
-
-  // 可选范围就是后端按权限返回的待办；用户没选过时默认展示前 4 个
-  const availableTodoKeys = todos.map((todo) => todo.key);
-  const selectedTodoKeys = (todoSelection ?? availableTodoKeys.slice(0, TODO_MAX))
-    .filter((key) => availableTodoKeys.includes(key));
-  const visibleTodos = todos.filter((todo) => selectedTodoKeys.includes(todo.key));
+  // 首屏三块盘面：null = 无该项权限或该块统计失败，对应卡片不渲染（不显示 0）
+  const summary: WorkbenchSummary | null = workbench?.summary ?? null;
+  // 精简待办：只留真正非零的项；全为零时整行不出现，不占版面
+  const activeTodos = todos.filter((todo) => todo.count !== null && todo.count > 0);
 
   const logout = () => {
     clearBizToken();
@@ -248,100 +202,138 @@ export default function BizWorkbench() {
               label: '工作台',
               children: (
                 <>
-        {/* ② 待办：一行指标条，先出骨架，不阻塞下方功能目录 */}
+        {/* ② 数据摘要 + 精简待办：先出骨架，不阻塞下方功能目录 */}
         <section>
           <div className="wb-section-head">
-            <h2 className="wb-section-title">待办事项</h2>
+            <h2 className="wb-section-title">数据摘要</h2>
             <div className="wb-section-tools">
               <span className="wb-section-meta">
                 {todoLoading ? '统计中…' : workbench ? '按当前权限统计' : '统计失败'}
               </span>
-              {!todoLoading && todos.length > 0 && (
-                <Popover
-                  open={todoPickerOpen}
-                  onOpenChange={setTodoPickerOpen}
-                  trigger="click"
-                  placement="bottomRight"
-                  content={(
-                    <div className="wb-todo-picker">
-                      <div className="wb-todo-picker-head">
-                        <span>选择要展示的待办（最多 {TODO_MAX} 项）</span>
-                        <Button type="link" size="small" onClick={resetTodoSelection}>恢复默认</Button>
-                      </div>
-                      <Checkbox.Group
-                        className="wb-todo-picker-list"
-                        value={selectedTodoKeys}
-                        onChange={(values) => changeTodoSelection(values as string[])}
-                      >
-                        {todos.map((todo) => {
-                          const checked = selectedTodoKeys.includes(todo.key);
-                          return (
-                            <Checkbox
-                              key={todo.key}
-                              value={todo.key}
-                              disabled={!checked && selectedTodoKeys.length >= TODO_MAX}
-                            >
-                              {todo.label}
-                            </Checkbox>
-                          );
-                        })}
-                      </Checkbox.Group>
-                      <div className="wb-todo-picker-foot">已选 {selectedTodoKeys.length}/{TODO_MAX}</div>
-                    </div>
-                  )}
-                >
-                  <Button size="small" type="text" icon={<SettingOutlined />}>设置</Button>
-                </Popover>
-              )}
+              <Button icon={<ReloadOutlined />} onClick={() => void loadTodos()} loading={todoLoading}>刷新</Button>
             </div>
           </div>
 
           {todoLoading ? (
-            <div className="v3-panel" style={{ padding: 16 }}><Skeleton active paragraph={{ rows: 1 }} title={false} /></div>
+            <div className="v3-panel" style={{ padding: 16 }}><Skeleton active paragraph={{ rows: 2 }} title={false} /></div>
           ) : !workbench ? (
             <Alert
               type="warning"
               showIcon
-              message="待办统计加载失败"
-              description="下方功能入口不受影响，可以正常进入各模块；也可以点右上角「刷新待办」重试。"
+              message="数据摘要加载失败"
+              description="下方功能入口不受影响，可以正常进入各模块；也可以点右上角「刷新」重试。"
             />
-          ) : todos.length === 0 ? (
-            <div className="v3-panel" style={{ padding: '22px 16px', textAlign: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>当前角色没有配置待办统计项</Text>
-            </div>
-          ) : visibleTodos.length === 0 ? (
-            <div className="v3-panel" style={{ padding: '22px 16px', textAlign: 'center' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>未选择待办类别，点右上角「设置」选择要展示的项</Text>
-            </div>
           ) : (
-            <div className="wb-todo-strip">
-              {visibleTodos.map((todo) => {
-                // 全为 0 时用后端给的自然语句（「30 天内没有到期事项」），
-                // 有内容时才展开「草稿 2 · 被退回 1」这种明细
-                const note = todo.count === 0
-                  ? todo.description
-                  : todo.detail.length > 0
-                    ? todo.detail.map((item) => `${item.label} ${item.value}`).join(' · ')
-                    : todo.description;
-                const valueClass = todo.count === null
-                  ? ' is-empty'
-                  : todo.count === 0 ? ' is-zero' : '';
-                return (
-                  <button
-                    key={todo.key}
-                    type="button"
-                    className={`wb-todo is-${todo.level}`}
-                    onClick={() => navigate(todo.link)}
-                  >
-                    <span className="wb-todo-label">{todo.label}</span>
-                    <span className={`wb-todo-value${valueClass}`}>
-                      {todo.count === null ? '—' : todo.count}
-                    </span>
-                    <span className="wb-todo-note" title={note}>{note}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <>
+              {summary && (summary.contract || summary.maintenance || summary.assessment) ? (
+                <div className="wb-summary-grid">
+                  {summary.contract && (
+                    <button
+                      type="button"
+                      className={`wb-summary is-${summary.contract.expiringCount > 0 ? 'warning' : 'info'}`}
+                      onClick={() => navigate('/biz/contract-overview')}
+                    >
+                      <span className="wb-summary-head">
+                        <span className="wb-summary-label">合同即将到期</span>
+                        <span className="wb-summary-flag">经营</span>
+                      </span>
+                      <span className="wb-summary-value">
+                        {summary.contract.expiringCount}
+                        <span className="wb-summary-unit">份</span>
+                      </span>
+                      <span className="wb-summary-note">
+                        {summary.contract.windowDays} 天内到期 · 不含已到期
+                        {summary.contract.abnormalCount > 0 ? ` · ${summary.contract.abnormalCount} 份到期日异常` : ''}
+                      </span>
+                    </button>
+                  )}
+
+                  {summary.maintenance && (
+                    <button
+                      type="button"
+                      className={`wb-summary is-${summary.maintenance.expired > 0 ? 'danger' : summary.maintenance.dueSoon > 0 ? 'warning' : 'info'}`}
+                      onClick={() => navigate('/biz/maintenance/expiry')}
+                    >
+                      <span className="wb-summary-head">
+                        <span className="wb-summary-label">证照与保险到期</span>
+                        <span className="wb-summary-flag">维护</span>
+                      </span>
+                      <span className="wb-summary-value">
+                        {summary.maintenance.expired + summary.maintenance.dueSoon}
+                        <span className="wb-summary-unit">条</span>
+                      </span>
+                      <span className="wb-summary-kinds">
+                        {summary.maintenance.kinds.map((kind) => (
+                          <span key={kind.kind} className="wb-summary-kind">
+                            <span className="wb-summary-kind-label">{kind.label}</span>
+                            <span className="wb-summary-kind-value">{kind.expired + kind.dueSoon}</span>
+                          </span>
+                        ))}
+                      </span>
+                      <span className="wb-summary-note">
+                        已过期 {summary.maintenance.expired} · {summary.maintenance.windowDays} 天内到期 {summary.maintenance.dueSoon}
+                      </span>
+                    </button>
+                  )}
+
+                  {summary.assessment && (
+                    <button
+                      type="button"
+                      className="wb-summary is-info"
+                      onClick={() => navigate('/biz/engineering/assessment/detail')}
+                    >
+                      <span className="wb-summary-head">
+                        <span className="wb-summary-label">后评估分数与排名</span>
+                        <span className="wb-summary-flag">工程</span>
+                      </span>
+                      <span className="wb-summary-value">
+                        {summary.assessment.monthAvgScore === null
+                          ? '—'
+                          : summary.assessment.monthAvgScore.toFixed(2)}
+                        <span className="wb-summary-unit">分</span>
+                      </span>
+                      <span className="wb-summary-note">
+                        {summary.assessment.avgMonthRank === null
+                          ? '暂无相对排名'
+                          : `平均第 ${summary.assessment.avgMonthRank.toFixed(1)} 名 · ${summary.assessment.rankedProjectCount}/${summary.assessment.projectCount} 个项目`}
+                      </span>
+                      <span className="wb-summary-foot">
+                        {summary.assessment.month ?? '—'} · {summary.assessment.supplier}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="v3-panel" style={{ padding: '22px 16px', textAlign: 'center' }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    当前角色没有可展示的数据摘要（需要合同、维护或后评估的查看权限）
+                  </Text>
+                </div>
+              )}
+
+              {/* 待办只保留非零项：摘要管「盘子怎么样」，这里只管「我还欠什么」，全为零就整行不出现 */}
+              {activeTodos.length > 0 && (
+                <div className="wb-todo-strip is-compact">
+                  {activeTodos.map((todo) => {
+                    const note = todo.detail.length > 0
+                      ? todo.detail.map((item) => `${item.label} ${item.value}`).join(' · ')
+                      : todo.description;
+                    return (
+                      <button
+                        key={todo.key}
+                        type="button"
+                        className={`wb-todo is-${todo.level}`}
+                        onClick={() => navigate(todo.link)}
+                      >
+                        <span className="wb-todo-label">{todo.label}</span>
+                        <span className="wb-todo-value">{todo.count}</span>
+                        <span className="wb-todo-note" title={note}>{note}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </section>
 

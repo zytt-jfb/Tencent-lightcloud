@@ -2,21 +2,35 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BizAuthContext } from '../rbac/rbac.service';
-import { MaintenanceOverviewService } from '../maintenance/maintenance-overview.service';
+import { MaintenanceOverviewService, MaintenanceOverviewResult } from '../maintenance/maintenance-overview.service';
 import { BizAssessmentsEntryService } from '../biz-assessments/biz-assessments-entry.service';
 import { BizCostService } from '../biz-costs/biz-cost.service';
 import { BizOfflineCompletionService } from '../biz-completions/biz-offline-completion.service';
 import { BizCommunicationService } from '../biz-communications/biz-communication.service';
+import { BizContractsService } from '../biz-contracts/biz-contracts.service';
+import { BizAssessmentsScorecardService } from '../biz-assessments/biz-assessments-scorecard.service';
+import { BizSystemSettingEntity } from '../aggregates/biz-system-setting.entity';
 import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entity';
 import { BizUserPreferenceEntity } from './biz-user-preference.entity';
 
 /** 与维护总览默认的「临期窗口」保持一致，否则工作台说 30 天、台账说 60 天 */
 const WORKBENCH_WINDOW_DAYS = 30;
+
+/**
+ * 后评估摘要的统计对象（本单位供应商全称）。
+ * 优先读系统设置 biz_system_settings.assessment.focus_supplier，缺失时回退默认值——
+ * 换供应商只改库不改代码；名字必须与 biz_assessment_record.supplier_name 完全一致，
+ * 否则 rankDesc 拿不到同项目其他供应商，名次会全部变 null。
+ */
+const FOCUS_SUPPLIER_KEY = 'assessment.focus_supplier';
+const DEFAULT_FOCUS_SUPPLIER = '中屹技术有限公司';
 const ACTIVITY_LIMIT = 5;
 
-/** 待办展示偏好的存储键与取值上限；可选项必须与 load() 里实际产出的 todo.key 一致 */
+/**
+ * 待办展示偏好的存储键与已知类别白名单。
+ * 不设项数上限：可选范围就是该账号权限内的全部类别，勾多少存多少（白名单本身已封顶）。
+ */
 const TODO_PREF_KEY = 'workbench.todo_keys';
-const TODO_PREF_MAX = 4;
 const TODO_KEYS = new Set([
   'maintenance-expiry',
   'assessment-entry-draft',
@@ -55,10 +69,63 @@ export interface WorkbenchActivity {
   createdAt: string;
 }
 
+/**
+ * 数据摘要：工作台首屏的三块盘面（合同即将到期 / 证照保险到期 / 后评估分数排名）。
+ *
+ * 与 todos 的区别：todos 是「我还得动手」的动作清单；summary 是「我管的盘子现在什么样」。
+ * 每块都可能为 null —— 没权限或该模块统计失败时前端直接不渲染这张卡，不显示 0。
+ */
+export interface WorkbenchSummaryContract {
+  /** 30 天内到期份数：不含已到期（已到期对业务已无意义，不参与展示与计数） */
+  expiringCount: number;
+  /** 到期日无法解析的合同数，单独列出，不混入 expiringCount */
+  abnormalCount: number;
+  windowDays: number;
+}
+
+export interface WorkbenchSummaryMaintenanceKind {
+  kind: string;
+  /** 人员 / 车辆 / 油机 */
+  label: string;
+  expired: number;
+  dueSoon: number;
+  anomaly: number;
+  total: number;
+}
+
+export interface WorkbenchSummaryMaintenance {
+  kinds: WorkbenchSummaryMaintenanceKind[];
+  expired: number;
+  dueSoon: number;
+  windowDays: number;
+}
+
+export interface WorkbenchSummaryAssessment {
+  /** 取数月份（最新考核月）；无数据时 null */
+  month: string | null;
+  /** 统计对象（供应商全称），来自系统设置，回退默认值 */
+  supplier: string;
+  /** 本月平均分 = Σ当月得分 / Σ当月明细条数；无数据时 null */
+  monthAvgScore: number | null;
+  /** 本月平均名次 = 各项目「同项目同月」名次的算术平均；无可用名次时 null */
+  avgMonthRank: number | null;
+  /** 参与统计的项目数 */
+  projectCount: number;
+  /** 其中能算出名次的项目数（仅一家供应商的项目没有相对排名） */
+  rankedProjectCount: number;
+}
+
+export interface WorkbenchSummary {
+  contract: WorkbenchSummaryContract | null;
+  maintenance: WorkbenchSummaryMaintenance | null;
+  assessment: WorkbenchSummaryAssessment | null;
+}
+
 export interface WorkbenchResult {
   today: string;
   windowDays: number;
   todos: WorkbenchTodo[];
+  summary: WorkbenchSummary;
   activities: WorkbenchActivity[];
 }
 
@@ -102,6 +169,25 @@ function shanghaiToday(): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 把 'YYYY-MM-DD[ 后缀]' 解析成 UTC 毫秒数，用于纯日期比较。
+ * 合同到期日是 VARCHAR 文本，历史数据里有空值、'无'、'2027-14-01' 这类脏值：
+ * 解析不了就返回 null（调用方单独计数），绝不退化成「今天到期」冲进预警。
+ */
+function parseDayKey(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const matched = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value).trim());
+  if (!matched) return null;
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const day = Number(matched[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const ms = Date.UTC(year, month - 1, day);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /**
  * 工作台聚合服务
  *
@@ -118,11 +204,14 @@ export class WorkbenchService {
   constructor(
     private readonly maintenance: MaintenanceOverviewService,
     private readonly assessments: BizAssessmentsEntryService,
+    private readonly scorecards: BizAssessmentsScorecardService,
+    private readonly contracts: BizContractsService,
     private readonly costs: BizCostService,
     private readonly completions: BizOfflineCompletionService,
     private readonly communications: BizCommunicationService,
     @InjectRepository(BizOperationLogEntity) private readonly logRepo: Repository<BizOperationLogEntity>,
     @InjectRepository(BizUserPreferenceEntity) private readonly prefRepo: Repository<BizUserPreferenceEntity>,
+    @InjectRepository(BizSystemSettingEntity) private readonly settingRepo: Repository<BizSystemSettingEntity>,
   ) {}
 
   /** 把异常收敛成 null，避免一个模块挂掉让整页空白 */
@@ -138,16 +227,25 @@ export class WorkbenchService {
     const allow = (code: string) => auth.isSuperAdmin || auth.permissionCodes.has(code);
     const allowAny = (...codes: string[]) => auth.isSuperAdmin || codes.some((code) => auth.permissionCodes.has(code));
 
+    // 维护总览是全页最重的一次查询：待办与摘要共用同一个 Promise，绝不跑两遍
+    const canMaintenance = allowAny('maintenance.personnel.enter', 'maintenance.asset.enter');
+    const maintenancePromise: Promise<MaintenanceOverviewResult | null> = canMaintenance
+      ? this.safe(this.maintenance.build(WORKBENCH_WINDOW_DAYS, auth))
+      : Promise.resolve(null);
+
     const tasks: Array<Promise<WorkbenchTodo>> = [];
     // 总览/台账用「人员进入 或 资产进入」任一放行，工作台同口径
-    if (allowAny('maintenance.personnel.enter', 'maintenance.asset.enter')) tasks.push(this.maintenanceTodo(auth));
+    if (canMaintenance) tasks.push(maintenancePromise.then((overview) => this.maintenanceTodo(overview)));
     if (allow('assessment.entry.read')) tasks.push(this.assessmentTodo(auth));
     if (allow('operation.cost.read')) tasks.push(this.costTodo(auth));
     if (allow('operation.completion.read')) tasks.push(this.completionTodo(auth));
     if (allow('operation.message.read')) tasks.push(this.messageTodo(auth));
 
-    const [todos, activities] = await Promise.all([
+    const [todos, summary, activities] = await Promise.all([
       Promise.all(tasks),
+      this.safe(this.buildSummary(auth, {
+        canMaintenance, maintenancePromise, canContract: allow('operation.contract.read'), canAssessment: allow('assessment.overview.read'),
+      })),
       this.safe(this.recentActivities(auth)),
     ]);
 
@@ -155,8 +253,113 @@ export class WorkbenchService {
       today: shanghaiToday(),
       windowDays: WORKBENCH_WINDOW_DAYS,
       todos,
+      summary: summary ?? { contract: null, maintenance: null, assessment: null },
       activities: activities ?? [],
     };
+  }
+
+  /**
+   * 三块摘要各自独立 try/catch：哪块挂了就哪块返回 null，不牵连另外两块。
+   * （外层还有一层 safe，这里再把粒度缩小到单块，避免一个模块异常让整条摘要消失）
+   */
+  private async buildSummary(
+    auth: BizAuthContext,
+    ctx: {
+      canMaintenance: boolean;
+      maintenancePromise: Promise<MaintenanceOverviewResult | null>;
+      canContract: boolean;
+      canAssessment: boolean;
+    },
+  ): Promise<WorkbenchSummary> {
+    const [contract, maintenance, assessment] = await Promise.all([
+      ctx.canContract ? this.safe(this.contractSummary(auth)) : Promise.resolve(null),
+      ctx.canMaintenance ? this.safe(this.maintenanceSummary(ctx.maintenancePromise)) : Promise.resolve(null),
+      ctx.canAssessment ? this.safe(this.assessmentSummary(auth)) : Promise.resolve(null),
+    ]);
+    return { contract: contract ?? null, maintenance: maintenance ?? null, assessment: assessment ?? null };
+  }
+
+  /**
+   * 合同即将到期份数。
+   * 口径：未删除 + 到期日落在 [今天, 今天+窗口]；**已到期不计入**（合同过期意味着业务已结束，
+   * 挂在工作台上没有可动作的意义）。数据范围直接复用合同列表的可见性判断，不另写一套授权逻辑。
+   */
+  private async contractSummary(auth: BizAuthContext): Promise<WorkbenchSummaryContract> {
+    const contracts = await this.contracts.list(auth, {});
+    const todayMs = parseDayKey(shanghaiToday());
+    const limitMs = todayMs === null ? null : todayMs + WORKBENCH_WINDOW_DAYS * DAY_MS;
+    let expiringCount = 0;
+    let abnormalCount = 0;
+    for (const contract of contracts) {
+      const endMs = parseDayKey(contract.endDate);
+      if (endMs === null) {
+        // 到期日为空/脏值不算到期，单独计数，避免被误当成「今天到期」冲进预警
+        if (contract.endDate && String(contract.endDate).trim()) abnormalCount += 1;
+        continue;
+      }
+      if (limitMs === null || todayMs === null) continue;
+      if (endMs >= todayMs && endMs <= limitMs) expiringCount += 1;
+    }
+    return { expiringCount, abnormalCount, windowDays: WORKBENCH_WINDOW_DAYS };
+  }
+
+  /** 证照/保险到期：三类资产分项。已过期要保留——证照过期等于无证上岗，是硬合规缺口 */
+  private async maintenanceSummary(overviewPromise: Promise<MaintenanceOverviewResult | null>): Promise<WorkbenchSummaryMaintenance | null> {
+    const overview = await overviewPromise;
+    if (!overview) return null;
+    const kinds = overview.byKind.map((item) => ({
+      kind: String(item.kind),
+      label: item.category,
+      expired: item.expired,
+      dueSoon: item.dueSoon,
+      anomaly: item.anomaly,
+      total: item.total,
+    }));
+    return {
+      kinds,
+      expired: kinds.reduce((sum, item) => sum + item.expired, 0),
+      dueSoon: kinds.reduce((sum, item) => sum + item.dueSoon, 0),
+      windowDays: overview.windowDays,
+    };
+  }
+
+  /**
+   * 后评估的分数与排名。
+   * 直接复用供应商记分卡的口径（同项目同月按当月得分排名），保证和「供应商记分卡」页数字对得上；
+   * 名次取各项目算术平均，仅一家供应商的项目没有相对排名，不参与平均。
+   */
+  private async assessmentSummary(auth: BizAuthContext): Promise<WorkbenchSummaryAssessment | null> {
+    const supplier = await this.focusSupplier();
+    const card = await this.scorecards.scorecard(auth, { supplier });
+    if (!card.month) return null;
+
+    let scoreSum = 0;
+    let scoreCount = 0;
+    let rankSum = 0;
+    let rankedProjectCount = 0;
+    for (const row of card.rows) {
+      scoreSum += row.monthScore;
+      scoreCount += row.monthCount;
+      if (row.monthRank !== null) {
+        rankSum += row.monthRank;
+        rankedProjectCount += 1;
+      }
+    }
+    return {
+      month: card.month,
+      supplier,
+      monthAvgScore: scoreCount > 0 ? Math.round((scoreSum / scoreCount) * 100) / 100 : null,
+      avgMonthRank: rankedProjectCount > 0 ? Math.round((rankSum / rankedProjectCount) * 100) / 100 : null,
+      projectCount: card.rows.length,
+      rankedProjectCount,
+    };
+  }
+
+  /** 统计对象：系统设置优先，缺失或为空回退默认供应商 */
+  private async focusSupplier(): Promise<string> {
+    const row = await this.safe(this.settingRepo.findOneBy({ settingKey: FOCUS_SUPPLIER_KEY }));
+    const value = row?.settingValue?.trim();
+    return value ? value : DEFAULT_FOCUS_SUPPLIER;
   }
 
   // ================= 用户偏好（每人一份，跨设备） =================
@@ -174,8 +377,7 @@ export class WorkbenchService {
       if (!Array.isArray(parsed)) return { todoKeys: null };
       return {
         todoKeys: parsed
-          .filter((key): key is string => typeof key === 'string' && TODO_KEYS.has(key))
-          .slice(0, TODO_PREF_MAX),
+          .filter((key): key is string => typeof key === 'string' && TODO_KEYS.has(key)),
       };
     } catch {
       return { todoKeys: null };
@@ -185,7 +387,8 @@ export class WorkbenchService {
   /**
    * 写入偏好。todoKeys = null 表示恢复默认（删行，而不是存空数组，
    * 这样「没设置过」和「一个都不选」在语义上能区分）。
-   * 服务端再校验一次：只接受已知类别、去重、最多 4 个——前端限制可以被绕过。
+   * 服务端再校验一次：只接受已知类别、去重——前端限制可以被绕过。
+   * 不限制项数：白名单只有 5 个 key，去重后天然封顶，不会存进超长数组。
    */
   async setTodoPreference(auth: BizAuthContext, todoKeys: string[] | null): Promise<{ todoKeys: string[] | null }> {
     if (todoKeys === null) {
@@ -193,8 +396,7 @@ export class WorkbenchService {
       return { todoKeys: null };
     }
     if (!Array.isArray(todoKeys)) throw new BadRequestException('todoKeys 必须是数组或 null');
-    const normalized = [...new Set(todoKeys.filter((key) => typeof key === 'string' && TODO_KEYS.has(key)))]
-      .slice(0, TODO_PREF_MAX);
+    const normalized = [...new Set(todoKeys.filter((key) => typeof key === 'string' && TODO_KEYS.has(key)))];
     await this.prefRepo.upsert(
       { userId: auth.userId, prefKey: TODO_PREF_KEY, prefValue: JSON.stringify(normalized) },
       ['userId', 'prefKey'],
@@ -202,9 +404,8 @@ export class WorkbenchService {
     return { todoKeys: normalized };
   }
 
-  /** 证照/保险到期：数字必须与「到期台账」顶部的 4 张卡一致 */
-  private async maintenanceTodo(auth: BizAuthContext): Promise<WorkbenchTodo> {
-    const overview = await this.safe(this.maintenance.build(WORKBENCH_WINDOW_DAYS, auth));
+  /** 证照/保险到期：数字必须与「到期台账」顶部的 4 张卡一致。总览由 load() 统一算一次后传入 */
+  private maintenanceTodo(overview: MaintenanceOverviewResult | null): WorkbenchTodo {
     if (!overview) {
       return {
         key: 'maintenance-expiry', label: '证照与保险到期', description: '暂时无法统计',

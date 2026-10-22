@@ -37,6 +37,6 @@ import { BizAssessmentsScorecardService } from './biz-assessments-scorecard.serv
   controllers: [BizAssessmentsController],
   providers: [BizAssessmentsImportService, BizAssessmentsQueryService, BizAssessmentsEntryService, BizAssessmentsScorecardService],
   // EntryService 供工作台统计「待提交填报」，复用其数据范围收敛逻辑
-  exports: [BizAssessmentsQueryService, BizAssessmentsEntryService],
+  exports: [BizAssessmentsQueryService, BizAssessmentsEntryService, BizAssessmentsScorecardService],
 })
 export class BizAssessmentsModule {}
