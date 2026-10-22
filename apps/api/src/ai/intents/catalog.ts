@@ -8,7 +8,11 @@ import type { Intent } from './intent.types';
  *   1. SQL 只写 SELECT，`{{scope}}` 必须放在 WHERE 的第一个条件位（早于所有 ?）；
  *   2. 表名必须在 sql-guard 白名单内，LIMIT 写死数字且在末尾；
  *   3. summary 里只能用占位符引用真实结果，禁止出现任何「预计/可能/大约」的生成式措辞；
- *   4. 同一个 trigger 不要出现在两个意图上，否则排序会变成玄学。
+ *   4. 同一个 trigger 不要出现在两个意图上，否则排序会变成玄学；
+ *   5. **GROUP BY 的硬规则**：SELECT 里的非聚合列必须出现在 GROUP BY 中，
+ *      聚合表达式必须整体套在 AVG/SUM/COUNT 里。写成 `ROUND((a+b)/12, 2) AS x` + `GROUP BY org`
+ *      会触发 MySQL 的 only_full_group_by 直接报错（已在生产踩过，用户看到的是 500）。
+ *      正确写法：`ROUND(AVG((a+b)/12), 2)`。
  *
  * 表与语义对应（两套「后评估」在本系统里是两份数据，不要混）：
  *   · biz_assessment_record  —— 工程管理/后评估管理：按月（eval_month）、有 A/B/C/D 等级、按项目打分
@@ -219,7 +223,9 @@ export const INTENT_CATALOG: Intent[] = [
     priority: 20,
     sql: {
       text: [
-        `SELECT organization, ROUND(${PERF_SCORE_SUM} / 12, 2) AS avg_score`,
+        // 注意：聚合表达式必须整体套在 AVG/SUM 里。写成 ROUND((a+b)/12, 2) 会被
+        // MySQL 的 only_full_group_by 判定为「非聚合列出现在 SELECT」，直接报错。
+        `SELECT organization, ROUND(AVG((${PERF_SCORE_SUM}) / 12), 2) AS avg_score`,
         'FROM biz_performance_record',
         'WHERE {{scope}} AND assessment_year = ?',
         'GROUP BY organization',
