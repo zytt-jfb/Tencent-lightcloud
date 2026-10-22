@@ -321,20 +321,80 @@ body {
 .wb-page { min-height: 100vh; min-height: 100dvh; background: var(--v3-bg); }
 .wb-header { border-bottom: 1px solid var(--v3-border); background: var(--v3-surface); }
 .wb-header-inner {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   max-width: 1440px;
   margin: 0 auto;
   padding: 16px 24px 15px;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 16px;
+}
+.wb-header-inner .v3-head-actions { justify-self: end; }
+/* 顶部中间的日期/时间/星期：右对齐数字、等宽，秒跳动时不抖 */
+.wb-clock { justify-self: center; text-align: center; }
+.wb-clock-date { color: var(--v3-muted); font-size: 12px; letter-spacing: .02em; }
+.wb-clock-week { margin-left: 6px; color: var(--v3-fg); font-weight: 600; }
+.wb-clock-time {
+  margin-top: 2px; color: var(--v3-fg); font-size: 22px; font-weight: 650;
+  font-variant-numeric: tabular-nums; letter-spacing: .04em; line-height: 1.2;
 }
 .wb-greeting { margin: 3px 0 0; color: var(--v3-fg); font-size: 19px; font-weight: 650; line-height: 1.3; }
 .wb-subline { display: flex; margin-top: 6px; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--v3-muted); font-size: 11px; }
 .wb-main { max-width: 1440px; margin: 0 auto; padding: 16px 24px 40px; }
+/* 工作台标签：概览页自带 v3-content / main 内边距，嵌进标签页后收敛一层，避免双重留白 */
+.wb-tabs > .ant-tabs-nav { margin-bottom: 16px; }
+.wb-tabs .ant-tabs-tabpane .v3-content { padding: 0 0 8px; }
+.wb-tabs .ant-tabs-tabpane main { padding-left: 0 !important; padding-right: 0 !important; }
+
+/* 模块权限抽屉：模块开关在前、功能细调在后，两级结构替代原来的平铺表格 */
+.perm-drawer-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--v3-border);
+}
+.perm-drawer-summary { font-size: 12px; font-variant-numeric: tabular-nums; }
+.perm-tip {
+  margin: 12px 0 4px; padding: 8px 10px; border-radius: 4px;
+  background: #f6f8fa; color: #5b6670; font-size: 12px; line-height: 1.6;
+}
+.perm-section-title { margin: 16px 0 8px; color: #5b6670; font-size: 12px; font-weight: 600; }
+.perm-module-list { border: 1px solid var(--v3-border); border-radius: 4px; overflow: hidden; }
+.perm-module-row, .perm-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; background: #fff; border-bottom: 1px solid var(--v3-border);
+}
+.perm-module-row { background: #fcfdfe; }
+.perm-module-row:last-child, .perm-row:last-child { border-bottom: none; }
+.perm-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.perm-row-label { color: #1f2d3d; font-size: 13px; font-weight: 600; }
+.perm-row-desc {
+  max-width: 400px; color: #8b96a1; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.perm-module-row.is-off .perm-row-label, .perm-row.is-off .perm-row-label { color: #9aa4ae; font-weight: 500; }
+.perm-children .perm-section-title { margin-top: 20px; }
+
+@media (max-width: 640px) {
+  .perm-row-desc { max-width: 190px; }
+}
 .wb-section-head { display: flex; margin-bottom: 8px; align-items: baseline; justify-content: space-between; gap: 12px; }
 .wb-section-title { margin: 0; color: var(--v3-fg); font-size: 13px; font-weight: 600; }
 .wb-section-meta { color: #9aa4ae; font-size: 10px; font-variant-numeric: tabular-nums; }
+.wb-section-tools { display: flex; align-items: center; gap: 4px; }
+.wb-section-tools .ant-btn { height: 22px; padding: 0 6px; color: var(--v3-muted); font-size: 11px; }
+
+/* 待办类别选择器：勾选 + 最多 4 项 */
+.wb-todo-picker { width: 236px; }
+.wb-todo-picker-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 8px; color: var(--v3-fg); font-size: 12px; font-weight: 600;
+}
+.wb-todo-picker-head .ant-btn { height: auto; padding: 0; font-size: 11px; font-weight: 400; }
+.wb-todo-picker-list { display: flex; flex-direction: column; gap: 8px; }
+.wb-todo-picker-list .ant-checkbox-wrapper { margin: 0; font-size: 12px; }
+.wb-todo-picker-foot {
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--v3-border);
+  color: var(--v3-muted); font-size: 11px; font-variant-numeric: tabular-nums;
+}
 .wb-stack { display: flex; flex-direction: column; gap: 12px; }
 
 /* 待办指标条：一行铺开，左侧状态色条区分紧急度 */
@@ -491,6 +551,12 @@ body {
   .wb-todo-strip { grid-auto-flow: row; grid-auto-columns: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wb-todo { border-right: 1px solid var(--v3-border); }
   .wb-todo:nth-child(2n) { border-right: 0; }
+}
+/* 窄屏：时钟掉到第二行、左对齐，不挤压问候语和按钮 */
+@media (max-width: 860px) {
+  .wb-header-inner { grid-template-columns: minmax(0, 1fr) auto; row-gap: 10px; align-items: start; }
+  .wb-clock { display: flex; grid-column: 1 / -1; grid-row: 2; align-items: baseline; gap: 10px; justify-self: start; text-align: left; }
+  .wb-clock-time { margin-top: 0; font-size: 18px; }
 }
 @media (max-width: 900px) {
   /* 窄屏把待办拉成「左标签+说明 / 右数字」两列，避免一行占 90px 高 */

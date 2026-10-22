@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BizAuthContext } from '../rbac/rbac.service';
@@ -8,10 +8,22 @@ import { BizCostService } from '../biz-costs/biz-cost.service';
 import { BizOfflineCompletionService } from '../biz-completions/biz-offline-completion.service';
 import { BizCommunicationService } from '../biz-communications/biz-communication.service';
 import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entity';
+import { BizUserPreferenceEntity } from './biz-user-preference.entity';
 
 /** 与维护总览默认的「临期窗口」保持一致，否则工作台说 30 天、台账说 60 天 */
 const WORKBENCH_WINDOW_DAYS = 30;
 const ACTIVITY_LIMIT = 5;
+
+/** 待办展示偏好的存储键与取值上限；可选项必须与 load() 里实际产出的 todo.key 一致 */
+const TODO_PREF_KEY = 'workbench.todo_keys';
+const TODO_PREF_MAX = 4;
+const TODO_KEYS = new Set([
+  'maintenance-expiry',
+  'assessment-entry-draft',
+  'cost-draft',
+  'completion-draft',
+  'message-unread',
+]);
 
 export type WorkbenchTodoLevel = 'danger' | 'warning' | 'info';
 
@@ -110,6 +122,7 @@ export class WorkbenchService {
     private readonly completions: BizOfflineCompletionService,
     private readonly communications: BizCommunicationService,
     @InjectRepository(BizOperationLogEntity) private readonly logRepo: Repository<BizOperationLogEntity>,
+    @InjectRepository(BizUserPreferenceEntity) private readonly prefRepo: Repository<BizUserPreferenceEntity>,
   ) {}
 
   /** 把异常收敛成 null，避免一个模块挂掉让整页空白 */
@@ -144,6 +157,49 @@ export class WorkbenchService {
       todos,
       activities: activities ?? [],
     };
+  }
+
+  // ================= 用户偏好（每人一份，跨设备） =================
+
+  /**
+   * 读取当前用户的工作台待办偏好。
+   * 返回 null = 从未设置过 → 前端按默认（后端顺序前 4 个）展示。
+   * 存储值里混入未知 key（类别下线/改名）时静默过滤，不让一条脏数据卡住整页。
+   */
+  async getTodoPreference(auth: BizAuthContext): Promise<{ todoKeys: string[] | null }> {
+    const row = await this.prefRepo.findOneBy({ userId: auth.userId, prefKey: TODO_PREF_KEY });
+    if (!row) return { todoKeys: null };
+    try {
+      const parsed: unknown = JSON.parse(row.prefValue);
+      if (!Array.isArray(parsed)) return { todoKeys: null };
+      return {
+        todoKeys: parsed
+          .filter((key): key is string => typeof key === 'string' && TODO_KEYS.has(key))
+          .slice(0, TODO_PREF_MAX),
+      };
+    } catch {
+      return { todoKeys: null };
+    }
+  }
+
+  /**
+   * 写入偏好。todoKeys = null 表示恢复默认（删行，而不是存空数组，
+   * 这样「没设置过」和「一个都不选」在语义上能区分）。
+   * 服务端再校验一次：只接受已知类别、去重、最多 4 个——前端限制可以被绕过。
+   */
+  async setTodoPreference(auth: BizAuthContext, todoKeys: string[] | null): Promise<{ todoKeys: string[] | null }> {
+    if (todoKeys === null) {
+      await this.prefRepo.delete({ userId: auth.userId, prefKey: TODO_PREF_KEY });
+      return { todoKeys: null };
+    }
+    if (!Array.isArray(todoKeys)) throw new BadRequestException('todoKeys 必须是数组或 null');
+    const normalized = [...new Set(todoKeys.filter((key) => typeof key === 'string' && TODO_KEYS.has(key)))]
+      .slice(0, TODO_PREF_MAX);
+    await this.prefRepo.upsert(
+      { userId: auth.userId, prefKey: TODO_PREF_KEY, prefValue: JSON.stringify(normalized) },
+      ['userId', 'prefKey'],
+    );
+    return { todoKeys: normalized };
   }
 
   /** 证照/保险到期：数字必须与「到期台账」顶部的 4 张卡一致 */

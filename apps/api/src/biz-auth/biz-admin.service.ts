@@ -157,16 +157,27 @@ export class BizAdminService {
     await this.recordOp(operatorId, 'user.reset_password', 'user', userId);
   }
 
-  /** 用户最终权限（角色默认 + 账号例外；super_admin 通配） */
+  /**
+   * 用户最终权限（角色默认 + 账号例外；super_admin 通配）
+   *
+   * 角色默认必须与 RbacService.buildAuthContext 同源：读 biz_user_roles 的**全部绑定并集**，
+   * 而不是 biz_users.role_code 单列。原先只按主角色计算，一旦账号被配置了第二个角色，
+   * 权限界面显示的是「主角色」的权限，而运行时鉴权用的是全部角色的并集，
+   * 表现就是「管理员界面显示没开，账号却能看见/进入」——这类不一致无法靠界面操作纠正。
+   */
   async getUserEffectivePermissions(userId: string): Promise<{ roleCode: string; base: string[]; overrides: UserPermissionOverrideEntity[]; effective: string[] }> {
     const user = await this.userRepo.findOneBy({ id: userId });
     if (!user) throw new NotFoundException('账号不存在');
-    if (user.roleCode === PlatformRole.SUPER_ADMIN) {
+    const bindings = await this.userRoleRepo.findBy({ userId });
+    const roles = bindings.length ? [...new Set(bindings.map((binding) => binding.roleCode))] : [user.roleCode];
+    if (roles.includes(PlatformRole.SUPER_ADMIN) || user.roleCode === PlatformRole.SUPER_ADMIN) {
       return { roleCode: user.roleCode, base: ['*'], overrides: [], effective: ['*'] };
     }
-    const role = await this.roleRepo.findOneBy({ code: user.roleCode });
-    const bindings = role ? await this.rolePermissionRepo.findBy({ roleId: role.id }) : [];
-    const base = bindings.map((b) => b.permissionCode);
+    const roleRows = await this.roleRepo.findBy({ code: In(roles) });
+    const rolePermissionRows = roleRows.length
+      ? await this.rolePermissionRepo.findBy({ roleId: In(roleRows.map((role) => role.id)) })
+      : [];
+    const base = [...new Set(rolePermissionRows.map((binding) => binding.permissionCode))];
     const overrides = await this.overrideRepo.findBy({ userId });
     const effective = new Set(base);
     for (const override of overrides) {
@@ -180,7 +191,12 @@ export class BizAdminService {
   async setPermissionOverrides(operatorId: string, userId: string, inputs: PermissionOverrideInput[]): Promise<void> {
     const user = await this.userRepo.findOneBy({ id: userId });
     if (!user) throw new NotFoundException('账号不存在');
-    if (user.roleCode === PlatformRole.SUPER_ADMIN) throw new BadRequestException('不允许调整 super_admin 权限');
+    // 与鉴权同源：只要任一角色绑定是 super_admin 就按超管处理，
+    // 不能只看 biz_users.role_code 单列（多角色时该列可能不是超管，导致越权改写超管例外）
+    const bindings = await this.userRoleRepo.findBy({ userId });
+    const isSuperAdmin = user.roleCode === PlatformRole.SUPER_ADMIN
+      || bindings.some((binding) => binding.roleCode === PlatformRole.SUPER_ADMIN);
+    if (isSuperAdmin) throw new BadRequestException('不允许调整 super_admin 权限');
     await this.overrideRepo.delete({ userId });
     for (const input of inputs) {
       await this.overrideRepo.save({

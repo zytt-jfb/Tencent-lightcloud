@@ -3,3 +3,6 @@
 # Linux 部署时若按 git 默认转成 LF，会导致 precheck 报 checksum_drift 阻塞发布。
 # 用 -text 关闭该文件的换行转换，保证各平台检出内容与历史校验值一致。
 apps/api/migration/012_biz_permission_seed.sql -text
+# 048 起新增迁移统一按 LF 记账（checksum 基于工作区实际字节），
+# 关闭换行转换，避免 Windows 检出成 CRLF 后 check-files 报 drift。
+apps/api/migration/048_biz_user_preferences.sql -text

@@ -2,7 +2,7 @@ import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Spin } from 'antd';
 import { useBizPermission } from '@/utils/biz-permission';
-import { Alert, Badge, Button, Card, Drawer, Form, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Badge, Button, Card, Drawer, Form, Input, Modal, Segmented, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { exportPageRows } from '@/utils/page-export-core';
 import { Result } from 'antd';
@@ -19,35 +19,55 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 const MODULE_LABEL: Record<string, string> = {
-  engineeringEntry: '工程管理入口', maintenanceEntry: '维护管理入口', operationEntry: '经营管理入口', systemEntry: '系统设置入口',
+  engineeringEntry: '工程管理', maintenanceEntry: '维护管理', operationEntry: '经营管理', systemEntry: '系统设置',
   home: '经营首页', analysis: '经营分析', contract: '合同管理', order: '订单管理',
   maintenance: '维护管理',
   completion: '线下完工', cost: '地市成本', user: '用户管理', settings: '系统设置',
   module: '模块管理', role: '角色管理', region: '省市设置',
   announcement: '公告发布', message: '消息中心',
-  assessment: '工程管理 / 后评估',
+  assessment: '工程管理',
+  performance: '维护管理 / 月度考核',
   operationHome: '经营管理 / 首页', operationAnalysis: '经营管理 / 数据分析', operationContract: '经营管理 / 合同管理', operationOrder: '经营管理 / 订单管理', operationCompletion: '经营管理 / 完工管理', operationCost: '经营管理 / 成本管理',
   systemMessage: '系统设置 / 消息中心', systemAnnouncement: '系统设置 / 公告管理', systemUser: '系统设置 / 账号与权限', systemSettings: '系统设置 / 参数设置', systemRegion: '系统设置 / 省市设置',
 };
 const MODULE_DESCRIPTION: Record<string, string> = {
-  engineeringEntry: '独立控制工程管理模块的可见性和访问权限',
-  maintenanceEntry: '独立控制维护管理模块的可见性和访问权限',
-  operationEntry: '独立控制经营管理模块的可见性和访问权限',
-  systemEntry: '独立控制全局系统设置模块的可见性和访问权限',
-  assessment: '后评估概览、数据导入和线下填报',
+  engineeringEntry: '一个开关同时控制工程管理的入口与业务权限',
+  maintenanceEntry: '一个开关同时控制维护管理的入口与业务权限',
+  operationEntry: '独立控制经营管理模块的入口；各子模块权限在下方分别配置',
+  systemEntry: '独立控制全局系统设置的入口；各子模块权限在下方分别配置',
+  assessment: '后评估概览、数据导入和线下填报（含模块入口）',
   operationHome: '经营管理首页和数据入口', operationAnalysis: '经营概览、趋势、地市对比和超额清单', operationContract: '合同查看、上传、分配和费率维护', operationOrder: '订单上传、维护、作废和导出', operationCompletion: '线下完工填报、提交和审核', operationCost: '地市成本填报、退回和导出',
   systemMessage: '系统消息和公告查看', systemAnnouncement: '公告编制、发布和撤回', systemUser: '账号、角色、权限和数据范围', systemSettings: '全局参数及预警设置', systemRegion: '省份和地市字典管理',
   home: '门户首页和经营入口', analysis: '经营概览、趋势、地市对比和超额清单', contract: '合同查看、上传、分配和费率维护', order: '订单上传、待维护、作废和导出',
   completion: '线下完工填报、提交和审核', cost: '地市成本填报、退回和导出', user: '账号创建、停用、密码和数据范围', settings: '系统参数和预警设置',
   module: '业务模块入口配置', role: '角色与账号权限配置', region: '省份与地市字典的新增、修改和删除',
-  maintenance: '人员、车辆、油机维护数据管理',
+  maintenance: '人员、车辆、油机维护数据与月度考核（含模块入口）',
   announcement: '公告草稿、发布、撤回和范围管理', message: '流程消息、公告查看和已读处理',
 };
-const PORTAL_GROUPS = new Set(['engineeringEntry', 'maintenanceEntry', 'operationEntry', 'systemEntry']);
-
 type PermissionItem = { code: string; name: string; action: string };
-
 type PermissionGroup = { key: string; label: string; description: string; permissions: PermissionItem[] };
+
+type ModuleLevel = 'none' | 'read' | 'edit';
+
+const LEVEL_OPTIONS: Array<{ value: ModuleLevel; label: string }> = [
+  { value: 'none', label: '无权限' },
+  { value: 'read', label: '可查看' },
+  { value: 'edit', label: '可操作' },
+];
+
+/**
+ * 抽屉内的两级结构：模块开关 → 模块内功能。
+ * groupKeys[0] 是模块门禁组，其余是模块内可单独细调的功能组。
+ * 为什么不继续平铺：13 个组平铺时「入口权限」和「业务权限」混在一起，
+ * 管理员看不出哪个开关代表整个模块，于是出现「以为没开、实际能进」。
+ */
+const MODULE_SECTIONS: Array<{ key: string; label: string; description: string; groupKeys: string[] }> = [
+  { key: 'maintenance', label: '维护管理', description: '人员、车辆、油机、月度考核', groupKeys: ['maintenance'] },
+  { key: 'assessment', label: '工程管理', description: '后评估概览、数据导入、线下填报', groupKeys: ['assessment'] },
+  { key: 'operationEntry', label: '经营管理', description: '经营分析、合同、订单、成本、完工', groupKeys: ['operationEntry', 'operationHome', 'operationAnalysis', 'operationContract', 'operationOrder', 'operationCompletion', 'operationCost'] },
+  { key: 'systemEntry', label: '系统设置', description: '账号权限、参数、省市字典、消息公告', groupKeys: ['systemEntry', 'systemUser', 'systemSettings', 'systemRegion', 'systemMessage', 'systemAnnouncement'] },
+];
+
 
 function buildPermissionGroups(rows: Array<Record<string, unknown>>): PermissionGroup[] {
   const groups = new Map<string, PermissionItem[]>();
@@ -60,18 +80,26 @@ function buildPermissionGroups(rows: Array<Record<string, unknown>>): Permission
     const match = /^(?:operation\.)?([^.]+)\./.exec(code);
     if (!match) continue;
     const entryGroups: Record<string, string> = {
-      [BizPermissionCode.PORTAL_ENGINEERING_ENTER]: 'engineeringEntry',
-      [BizPermissionCode.PORTAL_MAINTENANCE_ENTER]: 'maintenanceEntry',
+      // 模块入口权限并入对应业务模块组：一个模块只出一个开关。
+      // 关掉这个开关会连 portal.*.enter 一起写 deny，模块才真正不可见；
+      // 拆成「××入口」和「××」两组时，管理员只关业务组、入口还开着，
+      // 就会出现「界面显示未开启、账号仍能进入该模块」——这正是历史上权限混淆的来源。
+      [BizPermissionCode.PORTAL_ENGINEERING_ENTER]: 'assessment',
+      [BizPermissionCode.PORTAL_MAINTENANCE_ENTER]: 'maintenance',
       [BizPermissionCode.MAINTENANCE_OPERATION_ENTER]: 'operationEntry',
+      [BizPermissionCode.PORTAL_SYSTEM_ENTER]: 'systemEntry',
     };
-    const operationGroups: Record<string, string> = { analysis: 'operationAnalysis', contract: 'operationContract', order: 'operationOrder', completion: 'operationCompletion', cost: 'operationCost', home: 'operationHome', message: 'systemMessage', announcement: 'systemAnnouncement', user: 'systemUser', role: 'systemUser', module: 'systemUser', settings: 'systemSettings', region: 'systemRegion' };
+    const operationGroups: Record<string, string> = { analysis: 'operationAnalysis', contract: 'operationContract', order: 'operationOrder', completion: 'operationCompletion', cost: 'operationCost', home: 'operationHome', message: 'systemMessage', announcement: 'systemAnnouncement', user: 'systemUser', role: 'systemUser', module: 'systemUser', settings: 'systemSettings', region: 'systemRegion', performance: 'maintenance' };
     const key = entryGroups[code] ?? operationGroups[match[1]] ?? match[1];
     const list = groups.get(key) ?? [];
     list.push({ code, name: String(row.name ?? code), action: String(row.action ?? '') });
     groups.set(key, list);
   }
-  groups.set('systemEntry', [{ code: BizPermissionCode.PORTAL_SYSTEM_ENTER, name: '系统设置入口', action: 'enter' }]);
-  const portalOrder = ['engineeringEntry', 'maintenanceEntry', 'operationEntry', 'systemEntry'];
+  // 字典里没有 portal.system.enter 时也保留「系统设置」开关，避免整组消失
+  if (!groups.has('systemEntry')) {
+    groups.set('systemEntry', [{ code: BizPermissionCode.PORTAL_SYSTEM_ENTER, name: '系统设置入口', action: 'enter' }]);
+  }
+  const portalOrder = ['assessment', 'maintenance', 'operationEntry', 'systemEntry'];
   return Array.from(groups.entries()).map(([key, permissions]) => ({ key, label: MODULE_LABEL[key] ?? key, description: MODULE_DESCRIPTION[key] ?? '该业务模块的访问和操作权限', permissions })).sort((a, b) => {
     const ai = portalOrder.indexOf(a.key); const bi = portalOrder.indexOf(b.key);
     if (ai >= 0 || bi >= 0) return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
@@ -107,6 +135,22 @@ export default function BizAdmin() {
   const [scopeSaving, setScopeSaving] = useState(false);
   const [contractScopeText, setContractScopeText] = useState('');
   const permissionGroups = buildPermissionGroups(permissionRows);
+  const groupByKey = new Map(permissionGroups.map((group) => [group.key, group]));
+
+  /** 模块开关取门禁组（groupKeys[0]）的级别；维护/工程是单组模块，门禁即全部 */
+  const levelOf = (key: string): ModuleLevel => moduleLevels[key] ?? 'none';
+  const levelOfSection = (section: typeof MODULE_SECTIONS[number]): ModuleLevel => levelOf(section.groupKeys[0]);
+  /** 改模块开关 = 把该模块下所有功能组一起设为同一级别（子项仍可再细调） */
+  const setSectionLevel = (section: typeof MODULE_SECTIONS[number], level: ModuleLevel) => {
+    setModuleLevels((prev) => {
+      const next = { ...prev };
+      for (const key of section.groupKeys) next[key] = level;
+      return next;
+    });
+  };
+  const openedSections = MODULE_SECTIONS.filter((section) => levelOfSection(section) !== 'none').length;
+  const noneGroupCount = permissionGroups.filter((group) => levelOf(group.key) === 'none').length;
+  const permUser = users.find((user) => String(user.id) === permUserId);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -226,18 +270,34 @@ export default function BizAdmin() {
     if (!permDetail || permDetail.roleCode === 'super_admin') return;
     setPermSaving(true);
     try {
+      /**
+       * 只持久化「与角色默认不一致」的组，一致的交回角色默认。
+       *
+       * 旧实现会把字典里**全部**权限点都写成 allow/deny 快照：
+       *   · 快照生成后新增的权限点不在里面，改角色默认也压不住，出现「显示没开却能用」；
+       *   · 一次保存就在库里落下上百条 deny，把角色本来有的权限整片压掉，事后无法从界面看出原因。
+       * 现在按组比对目标级别与角色默认级别，一致就不写例外，顺便清掉该组的历史遗留。
+       */
+      const baseSet = new Set(permDetail.base);
+      const baseLevelOf = (group: typeof permissionGroups[number]): 'none' | 'read' | 'edit' => {
+        const readable = group.permissions.some((permission) => (permission.action === 'read' || permission.action === 'enter') && baseSet.has(permission.code));
+        const writable = group.permissions.some((permission) => permission.action !== 'read' && permission.action !== 'enter' && baseSet.has(permission.code));
+        return writable ? 'edit' : readable ? 'read' : 'none';
+      };
+      const handledCodes = new Set(permissionGroups.flatMap((group) => group.permissions.map((permission) => permission.code)));
       const generated = permissionGroups.flatMap((group) => {
         const level = moduleLevels[group.key] ?? 'none';
+        if (level === baseLevelOf(group)) return [];
         return group.permissions.map((permission) => ({
           permissionCode: permission.code,
           effect: (level === 'none' || (level === 'read' && permission.action !== 'read' && permission.action !== 'enter')) ? 'deny' as const : 'allow' as const,
         }));
       });
-      const generatedCodes = new Set(generated.map((item) => item.permissionCode));
-      const preserved = permDetail.overrides.filter((item) => !generatedCodes.has(item.permissionCode));
+      // 字典里已不存在的历史权限码原样保留，不做静默清理
+      const preserved = permDetail.overrides.filter((item) => !handledCodes.has(item.permissionCode));
       if (!permUserId) return;
       await bizAdminSetOverrides(permUserId, [...preserved, ...generated]);
-      message.success('模块权限已保存，下次登录生效');
+      message.success(`模块权限已保存（写入 ${generated.length} 条例外，其余沿用角色默认），下次登录生效`);
       setPermOpen(false);
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
@@ -330,35 +390,76 @@ export default function BizAdmin() {
         </Form>
       </Modal>
 
-      <Drawer title="模块权限" open={permOpen} onClose={() => setPermOpen(false)} width={680} extra={<Space><Button disabled={!permDetail || permDetail.roleCode === 'super_admin'} onClick={restoreRoleDefaults}>恢复角色默认</Button><Button type="primary" loading={permSaving} onClick={() => { void onSavePermissions(); }}>保存权限</Button></Space>}>
+      <Drawer
+        title="模块权限"
+        open={permOpen}
+        onClose={() => setPermOpen(false)}
+        width={720}
+        extra={<Space><Button disabled={!permDetail || permDetail.roleCode === 'super_admin'} onClick={restoreRoleDefaults}>恢复角色默认</Button><Button type="primary" loading={permSaving} onClick={() => { void onSavePermissions(); }}>保存权限</Button></Space>}
+      >
         {permDetail && (
-          <div>
-            <p><b>角色：</b>{ROLE_LABEL[permDetail.roleCode] ?? permDetail.roleCode}</p>
-            <Alert
-              type="info"
-              showIcon
-              message="权限级别说明"
-              description="无权访问：门户入口和菜单隐藏，接口拒绝；可进入/查看：允许进入门户或查看数据；可操作：在查看基础上增加新增、修改、提交、审核或发布等操作。门户入口的“可进入/查看”不会授予业务数据权限，业务功能仍需单独配置。保存后，账号下次登录生效。"
-              style={{ marginBottom: 16 }}
-            />
-            <Table
-              size="small"
-              pagination={false}
-              rowKey="key"
-              dataSource={permissionGroups}
-              columns={[
-                { title: '功能分类', key: 'label', width: 260, render: (_: unknown, row: PermissionGroup) => <Space direction="vertical" size={0}><Space size={4}><Tag color={PORTAL_GROUPS.has(row.key) ? 'purple' : 'blue'}>{PORTAL_GROUPS.has(row.key) ? '门户入口' : '业务功能'}</Tag><Text strong>{row.label}</Text></Space><Text type="secondary" style={{ fontSize: 12 }}>{row.description}</Text></Space> },
-                { title: '当前级别', key: 'level', width: 150, render: (_: unknown, row: PermissionGroup) => (
-                  <Select
-                    value={permDetail.roleCode === 'super_admin' ? (PORTAL_GROUPS.has(row.key) ? 'read' : 'edit') : (moduleLevels[row.key] ?? 'none')}
+          <div className="perm-drawer">
+            <div className="perm-drawer-head">
+              <Space size={8} wrap>
+                <Text type="secondary">账号</Text>
+                <Text strong>{String(permUser?.username ?? '—')}</Text>
+                <Tag color="blue">{ROLE_LABEL[permDetail.roleCode] ?? permDetail.roleCode}</Tag>
+              </Space>
+              <Text type="secondary" className="perm-drawer-summary">
+                已开启 {openedSections}/{MODULE_SECTIONS.length} 个模块 · {noneGroupCount} 项功能无权限
+              </Text>
+            </div>
+
+            <div className="perm-tip">
+              无权限＝入口与菜单隐藏、接口拒绝；可查看＝只看数据；可操作＝可新增/修改/提交。保存后该账号下次登录生效。
+            </div>
+
+            <div className="perm-section-title">模块开关</div>
+            <div className="perm-module-list">
+              {MODULE_SECTIONS.map((section) => (
+                <div key={section.key} className={`perm-module-row${levelOfSection(section) === 'none' ? ' is-off' : ''}`}>
+                  <div className="perm-row-main">
+                    <span className="perm-row-label">{section.label}</span>
+                    <span className="perm-row-desc">{section.description}</span>
+                  </div>
+                  <Segmented
+                    size="small"
+                    value={permDetail.roleCode === 'super_admin' ? 'edit' : levelOfSection(section)}
                     disabled={permDetail.roleCode === 'super_admin'}
-                    style={{ width: 130 }}
-                    options={PORTAL_GROUPS.has(row.key) ? [{ value: 'none', label: '无权访问' }, { value: 'read', label: '可进入' }] : [{ value: 'none', label: '无权访问' }, { value: 'read', label: '可查看' }, { value: 'edit', label: '可操作' }]}
-                    onChange={(value: 'none' | 'read' | 'edit') => setModuleLevels((prev) => ({ ...prev, [row.key]: value }))}
+                    options={LEVEL_OPTIONS}
+                    onChange={(value) => setSectionLevel(section, value as ModuleLevel)}
                   />
-                ) },
-              ]}
-            />
+                </div>
+              ))}
+            </div>
+
+            {MODULE_SECTIONS.filter((section) => section.groupKeys.length > 1).map((section) => (
+              <div key={section.key} className="perm-children">
+                <div className="perm-section-title">{section.label} · 功能细调</div>
+                <div className="perm-module-list">
+                  {section.groupKeys.slice(1).map((groupKey) => {
+                    const group = groupByKey.get(groupKey);
+                    if (!group) return null;
+                    const shortLabel = group.label.includes('/') ? (group.label.split('/').pop() ?? group.label).trim() : group.label;
+                    return (
+                      <div key={groupKey} className={`perm-row${levelOf(groupKey) === 'none' ? ' is-off' : ''}`}>
+                        <div className="perm-row-main">
+                          <span className="perm-row-label">{shortLabel}</span>
+                          <span className="perm-row-desc">{group.description}</span>
+                        </div>
+                        <Segmented
+                          size="small"
+                          value={permDetail.roleCode === 'super_admin' ? 'edit' : levelOf(groupKey)}
+                          disabled={permDetail.roleCode === 'super_admin'}
+                          options={LEVEL_OPTIONS}
+                          onChange={(value) => setModuleLevels((prev) => ({ ...prev, [groupKey]: value as ModuleLevel }))}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Drawer>

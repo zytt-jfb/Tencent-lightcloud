@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Empty, Result, Skeleton, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Checkbox, Empty, Popover, Result, Skeleton, Tabs, Typography, message } from 'antd';
+import { ReloadOutlined, SettingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import { bizMe, type BizMeResult } from '@/api/biz.api';
-import { bizWorkbench, type WorkbenchResult } from '@/api/workbench.api';
+import { bizWorkbench, bizWorkbenchPreferences, bizSetWorkbenchPreferences, type WorkbenchResult } from '@/api/workbench.api';
 import { NAV_GROUPS, NAV_MODULES, ROLE_LABEL, visibleLeaves } from '@/components/biz/biz-navigation';
 import { clearBizToken } from '@/utils/biz-auth';
 import { clearBizPermissionCache } from '@/utils/biz-permission';
+import { BizPermissionCode } from '@/utils/biz-permission-code';
+import MaintenanceOverview from '@/pages/biz/maintenance/MaintenanceOverview';
+import BizAnalysisOverview from '@/pages/biz/BizAnalysisOverview';
+import AssessmentOverview from '@/pages/biz/engineering/AssessmentOverview';
+import { BizSnapshotProvider } from '@/components/biz/BizSnapshotContext';
 
 const { Text } = Typography;
 
@@ -19,6 +24,9 @@ const SCOPE_LABEL: Record<string, string> = {
   all: '全部数据',
 };
 
+/** 待办最多展示 4 项：再多一行就挤，且用户真正每天看的不会超过 4 类 */
+const TODO_MAX = 4;
+
 function greeting(): string {
   const hour = new Date().getHours();
   if (hour < 6) return '凌晨好';
@@ -26,6 +34,31 @@ function greeting(): string {
   if (hour < 14) return '中午好';
   if (hour < 18) return '下午好';
   return '晚上好';
+}
+
+const WEEKDAYS = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+
+/**
+ * 顶部中间的日期/时间/星期。
+ * 单独成组件：秒级刷新只重渲染这一小块，不带着整页（待办、功能目录）一起重算。
+ * 「上午好」仍由 greeting() 在整页渲染时算，两者可能跨整点短暂不一致，属可接受范围。
+ */
+function WorkbenchClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return (
+    <div className="wb-clock">
+      <div className="wb-clock-date">
+        {now.getFullYear()}年{now.getMonth() + 1}月{now.getDate()}日
+        <span className="wb-clock-week">{WEEKDAYS[now.getDay()]}</span>
+      </div>
+      <div className="wb-clock-time">{pad(now.getHours())}:{pad(now.getMinutes())}:{pad(now.getSeconds())}</div>
+    </div>
+  );
 }
 
 /**
@@ -48,6 +81,10 @@ export default function BizWorkbench() {
   const [error, setError] = useState<string | null>(null);
   const [workbench, setWorkbench] = useState<WorkbenchResult | null>(null);
   const [todoLoading, setTodoLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('home');
+  /** 待办展示选择：null = 未自定义（按后端顺序取前 4 个）；持久化在 localStorage，按账号隔离 */
+  const [todoSelection, setTodoSelection] = useState<string[] | null>(null);
+  const [todoPickerOpen, setTodoPickerOpen] = useState(false);
 
   const loadTodos = useCallback(() => {
     setTodoLoading(true);
@@ -82,6 +119,18 @@ export default function BizWorkbench() {
   const permissions = useMemo(() => new Set(me?.permissions ?? []), [me]);
   const isSuper = me?.roleCode === 'super_admin';
 
+  /**
+   * 概览标签的可见性与侧栏/工作台入口同口径：
+   * 维护概览要能进人员或资产（046 之后 contract_manager 两者都没有 → 不显示）；
+   * 工程概览看后评估概览权限；经营概览看经营分析权限。
+   * 三个标签各自独立，缺哪个就不显示哪个，不做「有模块入口就全展示」。
+   */
+  const canMaintenanceOverview = isSuper
+    || permissions.has(BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER)
+    || permissions.has(BizPermissionCode.MAINTENANCE_ASSET_ENTER);
+  const canAssessmentOverview = isSuper || permissions.has(BizPermissionCode.ASSESSMENT_OVERVIEW_READ);
+  const canAnalysisOverview = isSuper || permissions.has(BizPermissionCode.OPERATION_ANALYSIS_READ);
+
   /** 权限内的全部叶子入口，按「模块 → 分组」排布；空分组不渲染 */
   const modules = useMemo(() => {
     const leaves = visibleLeaves(permissions, isSuper, me?.roleCode);
@@ -99,6 +148,55 @@ export default function BizWorkbench() {
   const totalLeaves = modules.reduce((sum, module) => sum + module.groups.reduce((n, group) => n + group.leaves.length, 0), 0);
   const todos = workbench?.todos ?? [];
   const activities = workbench?.activities ?? [];
+
+  // 待办展示偏好存在服务端（迁移 048），换设备/清缓存都不会丢
+  useEffect(() => {
+    if (!me?.id) return;
+    let active = true;
+    bizWorkbenchPreferences()
+      .then((pref) => {
+        if (!active) return;
+        if (Array.isArray(pref.todoKeys)) {
+          setTodoSelection(pref.todoKeys);
+          return;
+        }
+        // 服务端还没有记录：把旧版本存在本地浏览器里的选择迁移上去（一次性）
+        try {
+          const legacyKey = `biz.workbench.todos.${me.id}`;
+          const legacy = window.localStorage.getItem(legacyKey);
+          if (!legacy) return;
+          const parsed: unknown = JSON.parse(legacy);
+          if (!Array.isArray(parsed)) return;
+          const migrated = parsed.filter((key): key is string => typeof key === 'string');
+          if (!migrated.length) return;
+          setTodoSelection(migrated);
+          window.localStorage.removeItem(legacyKey);
+          void bizSetWorkbenchPreferences(migrated).catch(() => undefined);
+        } catch {
+          // 旧缓存损坏：忽略，按默认展示
+        }
+      })
+      .catch(() => {
+        // 读偏好失败不影响工作台主体，按默认展示
+      });
+    return () => { active = false; };
+  }, [me?.id]);
+
+  const changeTodoSelection = (keys: string[]) => {
+    const next = keys.slice(0, TODO_MAX);
+    setTodoSelection(next);
+    void bizSetWorkbenchPreferences(next).catch(() => message.error('待办偏好保存失败，请稍后再试'));
+  };
+  const resetTodoSelection = () => {
+    setTodoSelection(null);
+    void bizSetWorkbenchPreferences(null).catch(() => message.error('待办偏好保存失败，请稍后再试'));
+  };
+
+  // 可选范围就是后端按权限返回的待办；用户没选过时默认展示前 4 个
+  const availableTodoKeys = todos.map((todo) => todo.key);
+  const selectedTodoKeys = (todoSelection ?? availableTodoKeys.slice(0, TODO_MAX))
+    .filter((key) => availableTodoKeys.includes(key));
+  const visibleTodos = todos.filter((todo) => selectedTodoKeys.includes(todo.key));
 
   const logout = () => {
     clearBizToken();
@@ -130,6 +228,7 @@ export default function BizWorkbench() {
               {workbench?.today && <span>· 统计基准日 {workbench.today}</span>}
             </div>
           </div>
+          <WorkbenchClock />
           <div className="v3-head-actions">
             <Button icon={<ReloadOutlined />} onClick={() => void loadTodos()} loading={todoLoading}>刷新待办</Button>
             <Button onClick={logout}>退出</Button>
@@ -138,13 +237,63 @@ export default function BizWorkbench() {
       </header>
 
       <main className="wb-main">
+        <BizSnapshotProvider>
+        <Tabs
+          className="wb-tabs"
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'home',
+              label: '工作台',
+              children: (
+                <>
         {/* ② 待办：一行指标条，先出骨架，不阻塞下方功能目录 */}
         <section>
           <div className="wb-section-head">
             <h2 className="wb-section-title">待办事项</h2>
-            <span className="wb-section-meta">
-              {todoLoading ? '统计中…' : workbench ? '按当前权限统计' : '统计失败'}
-            </span>
+            <div className="wb-section-tools">
+              <span className="wb-section-meta">
+                {todoLoading ? '统计中…' : workbench ? '按当前权限统计' : '统计失败'}
+              </span>
+              {!todoLoading && todos.length > 0 && (
+                <Popover
+                  open={todoPickerOpen}
+                  onOpenChange={setTodoPickerOpen}
+                  trigger="click"
+                  placement="bottomRight"
+                  content={(
+                    <div className="wb-todo-picker">
+                      <div className="wb-todo-picker-head">
+                        <span>选择要展示的待办（最多 {TODO_MAX} 项）</span>
+                        <Button type="link" size="small" onClick={resetTodoSelection}>恢复默认</Button>
+                      </div>
+                      <Checkbox.Group
+                        className="wb-todo-picker-list"
+                        value={selectedTodoKeys}
+                        onChange={(values) => changeTodoSelection(values as string[])}
+                      >
+                        {todos.map((todo) => {
+                          const checked = selectedTodoKeys.includes(todo.key);
+                          return (
+                            <Checkbox
+                              key={todo.key}
+                              value={todo.key}
+                              disabled={!checked && selectedTodoKeys.length >= TODO_MAX}
+                            >
+                              {todo.label}
+                            </Checkbox>
+                          );
+                        })}
+                      </Checkbox.Group>
+                      <div className="wb-todo-picker-foot">已选 {selectedTodoKeys.length}/{TODO_MAX}</div>
+                    </div>
+                  )}
+                >
+                  <Button size="small" type="text" icon={<SettingOutlined />}>设置</Button>
+                </Popover>
+              )}
+            </div>
           </div>
 
           {todoLoading ? (
@@ -160,9 +309,13 @@ export default function BizWorkbench() {
             <div className="v3-panel" style={{ padding: '22px 16px', textAlign: 'center' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>当前角色没有配置待办统计项</Text>
             </div>
+          ) : visibleTodos.length === 0 ? (
+            <div className="v3-panel" style={{ padding: '22px 16px', textAlign: 'center' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>未选择待办类别，点右上角「设置」选择要展示的项</Text>
+            </div>
           ) : (
             <div className="wb-todo-strip">
-              {todos.map((todo) => {
+              {visibleTodos.map((todo) => {
                 // 全为 0 时用后端给的自然语句（「30 天内没有到期事项」），
                 // 有内容时才展开「草稿 2 · 被退回 1」这种明细
                 const note = todo.count === 0
@@ -304,6 +457,15 @@ export default function BizWorkbench() {
             </div>
           </div>
         </div>
+                </>
+              ),
+            },
+            ...(canMaintenanceOverview ? [{ key: 'maintenance-overview', label: '维护概览', children: activeTab === 'maintenance-overview' ? <MaintenanceOverview /> : null }] : []),
+            ...(canAssessmentOverview ? [{ key: 'assessment-overview', label: '工程概览', children: activeTab === 'assessment-overview' ? <AssessmentOverview /> : null }] : []),
+            ...(canAnalysisOverview ? [{ key: 'analysis-overview', label: '经营概览', children: activeTab === 'analysis-overview' ? <BizAnalysisOverview /> : null }] : []),
+          ]}
+        />
+        </BizSnapshotProvider>
       </main>
     </div>
   );

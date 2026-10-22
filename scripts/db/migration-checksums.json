@@ -46,5 +46,6 @@
   "044_biz_assessment_cover_index_v2": "4715b894225d3c63464be16b94b1031cf1c93da1c3e57e2416530ef89e6e7d17",
   "045_biz_performance_permissions": "8680ab40e73fac0744da9456ca8153509eaf24323e87e11e18e941e3b1aab1e4",
   "046_maintenance_data_write": "77a4d6afb07fef490d53ad6657877b49d609c02fd70a15c4441883b4c55cb471",
-  "047_revoke_contract_manager_cost": "7eddc0ed611cd98049e98bc12660f507e987a65c73a2b5c31999f4f69e239310"
+  "047_revoke_contract_manager_cost": "7eddc0ed611cd98049e98bc12660f507e987a65c73a2b5c31999f4f69e239310",
+  "048_biz_user_preferences": "fdc1cdf064a15eb0a9d2371a4d4ed79ff1437eacc5a7f91b7b99a36a4cfd3223"
 }

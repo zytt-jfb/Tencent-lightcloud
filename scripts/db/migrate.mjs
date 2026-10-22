@@ -848,6 +848,14 @@ async function inspectState(version) {
     }
     return 'satisfied';
   }
+  if (version === '048_biz_user_preferences') {
+    // 判据：偏好表存在且关键列齐全（表里没有数据也是 satisfied —— 用户没设置过偏好是正常状态）
+    if (!await adapter.tableExists('biz_user_preferences')) return 'empty';
+    return allOrNothing([
+      adapter.columnExists('biz_user_preferences', 'pref_key'),
+      adapter.columnExists('biz_user_preferences', 'pref_value'),
+    ]);
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

@@ -50,3 +50,18 @@ export interface WorkbenchResult {
 export async function bizWorkbench(): Promise<WorkbenchResult> {
   return (await request.get('/biz/workbench')).data as WorkbenchResult;
 }
+
+export interface WorkbenchPreferences {
+  /** 待办类别；null = 从未设置过（前端按默认取前 4 个） */
+  todoKeys: string[] | null;
+}
+
+/** 读取当前账号的工作台偏好（服务端存储，跨设备生效） */
+export async function bizWorkbenchPreferences(): Promise<WorkbenchPreferences> {
+  return (await request.get('/biz/workbench/preferences')).data as WorkbenchPreferences;
+}
+
+/** 保存待办类别偏好；传 null 表示恢复默认 */
+export async function bizSetWorkbenchPreferences(todoKeys: string[] | null): Promise<WorkbenchPreferences> {
+  return (await request.put('/biz/workbench/preferences', { todoKeys })).data as WorkbenchPreferences;
+}

@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Put, UseGuards } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { BizAuthGuard } from '../biz-auth/biz-auth.guard';
 import { BizAuthUser } from '../biz-auth/biz-auth-user.decorator';
@@ -27,5 +27,23 @@ export class WorkbenchController {
   @Get()
   load(@BizAuthUser() auth: BizAuthContext) {
     return this.service.load(auth);
+  }
+
+  /**
+   * 当前用户的界面偏好（待办类别）。
+   * 不加额外权限：任何人都能读写自己的偏好；userId 只取 auth，不接受请求参数。
+   */
+  @Get('preferences')
+  getPreferences(@BizAuthUser() auth: BizAuthContext) {
+    return this.service.getTodoPreference(auth);
+  }
+
+  /** 保存待办类别偏好；todoKeys = null 表示恢复默认（删除该行） */
+  @Put('preferences')
+  setPreferences(@BizAuthUser() auth: BizAuthContext, @Body() body: { todoKeys?: string[] | null }) {
+    if (!body || !Object.prototype.hasOwnProperty.call(body, 'todoKeys')) {
+      throw new BadRequestException('缺少 todoKeys');
+    }
+    return this.service.setTodoPreference(auth, body.todoKeys ?? null);
   }
 }
