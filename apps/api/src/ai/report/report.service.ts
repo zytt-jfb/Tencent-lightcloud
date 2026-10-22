@@ -75,7 +75,10 @@ export class ReportService {
       legend: spec.yFields.length > 1 ? { bottom: 0 } : undefined,
       grid: { left: 48, right: 24, top: 48, bottom: spec.yFields.length > 1 ? 48 : 32 },
       xAxis: { type: 'category', data: rows.map((row) => String(row[xField] ?? '—')), axisLabel: { rotate: rows.length > 8 ? 30 : 0 } },
-      yAxis: { type: 'value', name: spec.unit ?? '' },
+      // scale: true 让数值轴从数据最小值开始，而不是强制从 0 起。
+      // 排名场景里 96 分和 82 分如果都从 0 画，柱子几乎等高，图就白画了。
+      // splitNumber 压到 4：数据区间很窄时（如 58.11~56.98）ECharts 默认会切出 8~10 条刻度线，太挤。
+      yAxis: { type: 'value', name: spec.unit ?? '', scale: true, splitNumber: 4 },
       series: spec.yFields.map((field) => ({
         type: spec.type,
         name: field,

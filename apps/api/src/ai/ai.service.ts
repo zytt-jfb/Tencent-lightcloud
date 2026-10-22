@@ -16,8 +16,7 @@ import { AI_SEMAPHORE_TOKEN, AiBusyError, Semaphore } from './concurrency/semaph
 import { AiChatDto, AiFeedbackDto, AiReportDto } from './dto/ai-chat.dto';
 import { FlywheelService } from './flywheel/flywheel.service';
 import { ScopeGuardService, type ScopePredicate } from './auth/scope-guard.service';
-import { deriveParamNames } from './intents/intent-params';
-import { extractParams } from './intents/intent-params';
+import { deriveParamNames, extractParams, findCityInInput } from './intents/intent-params';
 import { IntentRegistry } from './intents/intent-registry';
 import type { GuideItem, Intent, IntentCategory, IntentColumnSpec, IntentParams } from './intents/intent.types';
 import { LlmClientService } from './llm/llm-client.service';
@@ -123,11 +122,15 @@ export class AiService {
     const { params, missing } = extractParams(intent, question, { cityNames });
     if (missing.length > 0) return this.askParam(intent, question, traceId, startedAt, missing);
 
+    // 指定地市下钻：从问句抽取城市名；命中授权集合才生效，否则 scope-guard 直接拒绝
+    const overrideCity = findCityInInput(question, cityNames) ?? null;
+
     return this.runIntent(auth, intent, params, {
       traceId,
       question,
       startedAt,
       source: intent.category === 'qa' ? 'qa' : 'rule',
+      overrideCity,
     });
   }
 
@@ -157,6 +160,7 @@ export class AiService {
       question: `[report] ${intent.name}`,
       startedAt,
       source: intent.category === 'qa' ? 'qa' : 'rule',
+      overrideCity: null,
     });
   }
 
@@ -273,7 +277,7 @@ export class AiService {
     auth: BizAuthContext,
     intent: Intent,
     params: IntentParams,
-    ctx: { traceId: string; question: string; startedAt: number; source: 'rule' | 'qa' },
+    ctx: { traceId: string; question: string; startedAt: number; source: 'rule' | 'qa'; overrideCity?: string | null },
   ): Promise<AiChatResponse> {
     // 知识库问答：不查业务库，直接用本地片段
     if (!intent.sql) return this.answerKnowledge(auth, intent, params, ctx);
@@ -283,7 +287,7 @@ export class AiService {
       scope = await this.scopeGuard.resolve(auth, {
         column: intent.sql.scopeColumn,
         valueType: intent.sql.scopeValueType,
-      });
+      }, ctx.overrideCity);
     } catch (error) {
       this.flywheel.record({
         userId: auth.userId,

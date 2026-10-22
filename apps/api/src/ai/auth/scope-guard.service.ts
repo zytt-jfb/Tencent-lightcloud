@@ -63,6 +63,7 @@ export class ScopeGuardService {
   async resolve(
     auth: BizAuthContext,
     spec: { column: string; valueType: 'city_id' | 'city_name' },
+    overrideCityName?: string | null,
   ): Promise<ScopePredicate> {
     const column = spec.column;
     // 列名来自意图模板（代码常量），仍做一次严格校验，杜绝任何拼进 SQL 的可能性
@@ -72,24 +73,32 @@ export class ScopeGuardService {
 
     const dataScope = auth.dataScope;
     const all = auth.isSuperAdmin || dataScope?.allowAll === true || dataScope?.scopeType === 'all';
-    if (all) {
-      return { sql: '1=1', params: [], label: '全部地市', all: true };
-    }
 
+    // 先按 auth 算出「授权地市集合」（超管为空，表示全量）
     const cityIds = new Set<string>();
     for (const id of dataScope?.cityIds ?? []) if (id) cityIds.add(id);
     if (dataScope?.cityId) cityIds.add(dataScope.cityId);
-
-    // 省份范围展开：只有省份授权时，具体能看到哪些地市要查城市字典
     const provinceIds = dataScope?.provinceIds ?? [];
     if (provinceIds.length > 0) {
       const cities = await this.cityRepo.find({ where: { provinceId: In(provinceIds) }, select: { id: true } });
       for (const city of cities) cityIds.add(city.id);
     }
-
-    // deny 优先：无论在不在 allow 里，deny 的地市一律剔除
     for (const denied of dataScope?.deniedCityIds ?? []) cityIds.delete(denied);
 
+    // 指定地市下钻：仅当问句中带城市名、且该城市落在授权集合内才生效；否则直接拒绝，杜绝越权
+    if (overrideCityName && overrideCityName.trim()) {
+      const city = await this.resolveOverrideCity(overrideCityName.trim(), cityIds, all);
+      if (!city) {
+        throw new ForbiddenException(`无权查看「${overrideCityName.trim()}」的数据，或该地市不在你的授权范围内`);
+      }
+      const value = spec.valueType === 'city_id' ? city.id : city.name;
+      return { sql: `${column} = ?`, params: [value], label: city.name, all: false };
+    }
+
+    // 无下钻：沿用原有逻辑
+    if (all) {
+      return { sql: '1=1', params: [], label: '全部地市', all: true };
+    }
     if (cityIds.size === 0) {
       // 不给「空范围就等于全量」这种默认行为 —— 那是最经典的越权漏洞
       throw new ForbiddenException('当前账号未配置数据范围，无法查询业务数据');
@@ -123,5 +132,28 @@ export class ScopeGuardService {
       label: `${names.length} 个地市`,
       all: false,
     };
+  }
+
+  /**
+   * 把问句里的城市名解析成「授权集合内」的单一地市。
+   * 只在 all 或授权集合命中时才返回，否则返回 null（由调用方拒绝）。
+   * 命中规则：城市全名或去掉「市/地区/自治州/盟」后缀的短名精确相等，避免「济南」误中「济宁」。
+   */
+  private async resolveOverrideCity(
+    name: string,
+    authorizedIds: Set<string>,
+    all: boolean,
+  ): Promise<{ id: string; name: string } | null> {
+    const cities = await this.loadCities();
+    let best: { id: string; name: string } | null = null;
+    for (const city of cities) {
+      const short = city.name.replace(/(市|地区|自治州|盟)$/u, '');
+      const hit = city.name === name || short === name;
+      if (!hit) continue;
+      // 越权过滤：非全量账号只能下钻到自己授权范围内的地市
+      if (!all && !authorizedIds.has(city.id)) continue;
+      if (!best || city.name.length > best.name.length) best = { id: city.id, name: city.name };
+    }
+    return best;
   }
 }
