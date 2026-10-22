@@ -131,9 +131,15 @@ docker compose -f compose.yml run --rm -e MIGRATION_APPROVED=true \
 # 容器以 UID 10001 运行。如果 ${DATA_ROOT}/ai 不存在，docker 会以 root 建一个空目录挂进去，
 # 容器内写 sqlite 直接 EACCES —— 表现是「主业务一切正常，只有 AI 页第一次提问就 500」，
 # 这种问题从表象极难定位，所以放在启动前显式处理。
-mkdir -p "${DATA_ROOT}/ai"
-chown -R 10001:10001 "${DATA_ROOT}/ai"
-log "AI 数据目录就绪: ${DATA_ROOT}/ai (owner 10001)"
+# 注意：${DATA_ROOT} 属主通常是 root，普通用户建不了子目录，这里需要 sudo（本机为免密 sudo）。
+SUDO=""
+if [ "$(id -u)" != "0" ]; then SUDO="sudo -n"; fi
+if $SUDO mkdir -p "${DATA_ROOT}/ai" 2>/dev/null && $SUDO chown -R 10001:10001 "${DATA_ROOT}/ai" 2>/dev/null; then
+  log "AI 数据目录就绪: ${DATA_ROOT}/ai (owner 10001)"
+else
+  # 只警告不中止：AI 是附加能力，目录没准备好不影响主站发布
+  log "【警告】无法准备 ${DATA_ROOT}/ai（权限不足），AI 本地库将无法写入；其余功能不受影响"
+fi
 
 # AI 配置自检：只提示、不中止。AI 是附加能力，配置缺失不应阻断主站发布。
 if [ -z "${READONLY_DSN:-}" ]; then
