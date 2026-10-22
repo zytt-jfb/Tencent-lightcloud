@@ -27,6 +27,7 @@ const ImportJobs = lazy(() => import('@/pages/ImportJobs'));
 const CityReporting = lazy(() => import('@/pages/CityReporting'));
 const BizLogin = lazy(() => import('@/pages/biz/BizLogin'));
 const BizWorkbench = lazy(() => import('@/pages/biz/BizWorkbench'));
+const BizAiAssistant = lazy(() => import('@/pages/biz/BizAiAssistant'));
 const MaintenancePersonnelList = lazy(() => import('@/pages/biz/maintenance/PersonnelList'));
 const MaintenanceVehicleList = lazy(() => import('@/pages/biz/maintenance/VehicleList'));
 const MaintenanceGeneratorList = lazy(() => import('@/pages/biz/maintenance/GeneratorList'));
@@ -184,6 +185,7 @@ export default function App() {
       <Route path="analysis/overruns" element={<Suspense fallback={<PageLoading />}><BizAnalysisOverruns /></Suspense>} />
       <Route path="settings" element={<Suspense fallback={<PageLoading />}><BizSettings /></Suspense>} />
       <Route path="messages" element={<Suspense fallback={<PageLoading />}><BizMessages /></Suspense>} />
+      <Route path="ai" element={<Suspense fallback={<PageLoading />}><BizAiAssistant /></Suspense>} />
       <Route path="admin" element={<Suspense fallback={<PageLoading />}><BizAdmin /></Suspense>} />
       <Route path="region-settings" element={<Suspense fallback={<PageLoading />}><BizRegionSettings /></Suspense>} />
       <Route path="audit-logs" element={<Suspense fallback={<PageLoading />}><BizAuditLogs /></Suspense>} />

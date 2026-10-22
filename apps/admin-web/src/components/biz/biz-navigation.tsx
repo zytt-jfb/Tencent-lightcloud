@@ -14,7 +14,7 @@ import { BizPermissionCode } from '@/utils/biz-permission-code';
 import type { ReactNode } from 'react';
 import {
   ApartmentOutlined, BarChartOutlined, BellOutlined, ClockCircleOutlined, DeleteOutlined, FileTextOutlined,
-  InboxOutlined, SettingOutlined, SafetyCertificateOutlined, TeamOutlined, WalletOutlined,
+  InboxOutlined, RobotOutlined, SettingOutlined, SafetyCertificateOutlined, TeamOutlined, WalletOutlined,
 } from '@ant-design/icons';
 
 export const ROLE_LABEL: Record<string, string> = {
@@ -24,13 +24,14 @@ export const ROLE_LABEL: Record<string, string> = {
   city_user: '地市用户',
 };
 
-export type NavModuleCode = 'maintenance' | 'engineering' | 'operation' | 'message' | 'system';
+export type NavModuleCode = 'maintenance' | 'engineering' | 'operation' | 'message' | 'system' | 'assistant';
 
 export type NavGroupCode =
   | 'maintenance-core' | 'maintenance-assets' | 'performance'
   | 'assessment'
   | 'analysis' | 'contract' | 'cost' | 'completion'
   | 'message'
+  | 'assistant'
   | 'system';
 
 export interface NavModuleDef {
@@ -67,6 +68,7 @@ export const NAV_MODULES: NavModuleDef[] = [
   { code: 'engineering', label: '工程管理', icon: <SafetyCertificateOutlined /> },
   { code: 'operation', label: '经营管理', icon: <BarChartOutlined /> },
   { code: 'message', label: '消息中心', icon: <BellOutlined /> },
+  { code: 'assistant', label: '智能助手', icon: <RobotOutlined /> },
   { code: 'system', label: '系统设置', icon: <SettingOutlined /> },
 ];
 
@@ -80,6 +82,7 @@ export const NAV_GROUPS: NavGroupDef[] = [
   { code: 'cost', label: '成本管理', icon: <WalletOutlined />, module: 'operation' },
   { code: 'completion', label: '完工管理', icon: <TeamOutlined />, module: 'operation' },
   { code: 'message', label: '消息中心', icon: <BellOutlined />, module: 'message' },
+  { code: 'assistant', label: '智能助手', icon: <RobotOutlined />, module: 'assistant' },
   { code: 'system', label: '系统设置', icon: <SettingOutlined />, module: 'system' },
 ];
 
@@ -123,6 +126,11 @@ export const NAV_LEAVES: NavLeaf[] = [
 
   // ---------- 消息 ----------
   { key: '/biz/messages', label: '消息中心', icon: <BellOutlined />, permission: BizPermissionCode.OPERATION_MESSAGE_READ, group: 'message' },
+
+  // ---------- 智能助手 ----------
+  // 不设 permission：登录即可进入。能查到什么由后端按「意图权限 + 数据范围」决定，
+  // 前端若再按门户权限拦一道，会出现「有后评估权限但没门户权限」的账号看不到入口的怪事。
+  { key: '/biz/ai', label: '智能问答', icon: <RobotOutlined />, group: 'assistant' },
 
   // ---------- 系统设置 ----------
   { key: '/biz/settings', label: '系统设置', icon: <SettingOutlined />, permission: BizPermissionCode.OPERATION_SETTINGS_READ, group: 'system' },
@@ -182,6 +190,7 @@ const GROUP_PARENT_KEY: Record<NavGroupCode, string | undefined> = {
   cost: 'biz-cost',
   completion: 'biz-completion',
   message: undefined,
+  assistant: undefined,
   system: undefined,
 };
 

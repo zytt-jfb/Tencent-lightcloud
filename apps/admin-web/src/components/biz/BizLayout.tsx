@@ -145,6 +145,8 @@ export default function BizLayout() {
     ...toMenuItem(leaf),
     label: unreadCount > 0 ? `${leaf.label} (${unreadCount})` : leaf.label,
   }));
+  // 智能助手是顶层叶子，任何登录账号都能进（能查什么由后端定）
+  const assistantItems: NonNullable<MenuProps['items']> = leavesIn(['assistant']).map(toMenuItem);
 
   const analysisItems = leavesIn(['analysis']).map(toMenuItem);
   const contractItems = leavesIn(['contract']).map(toMenuItem);
@@ -163,13 +165,17 @@ export default function BizLayout() {
     ...(completionItems.length > 0 ? [{ key: 'biz-completion', label: '完工管理', icon: <TeamOutlined />, children: completionItems }] : []),
   ];
   const menuItems: MenuProps['items'] = [
+    ...assistantItems,
     ...messageItems,
     ...businessItems,
   ];
   const isEngineeringModule = location.pathname.startsWith('/biz/engineering') || location.pathname.startsWith('/biz/placeholder/engineering');
   const isMaintenanceModule = location.pathname.startsWith('/biz/maintenance') || location.pathname.startsWith('/biz/performance');
+  // 智能助手是独立模块：标题、侧栏、守卫都单独判，否则会落到「经营管理」分支，
+  // 侧栏出现一堆与助手无关的入口，标题也显示错的模块名。
+  const isAiModule = location.pathname === '/biz/ai' || location.pathname.startsWith('/biz/ai/');
   const isSystemModule = ['/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
-  const moduleName = isEngineeringModule ? '工程管理' : isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
+  const moduleName = isEngineeringModule ? '工程管理' : isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : isAiModule ? '智能助手' : '经营管理';
   /**
    * 维护管理侧栏：总览 / 到期台账 / 人员是顶层叶子，车辆油机收进「资产管理」，
    * 月度分数与绩效上传收进「月度考核」。
@@ -186,6 +192,7 @@ export default function BizLayout() {
   ];
   // 移动端与桌面端保持同一层级，避免两种导航结构产生不同入口。
   const mobileMenuItems: MenuProps['items'] = [
+    ...assistantItems,
     ...messageItems,
     ...businessItems,
   ];
@@ -252,7 +259,7 @@ export default function BizLayout() {
             {isMobile && <Text strong>{moduleName}</Text>}
             <Button type="text" icon={<HomeOutlined />} onClick={() => navigate('/biz/portal')}>工作台</Button>
           </Space>
-          {!isMaintenanceModule && !isSystemModule && !isEngineeringModule && <SnapshotStatusBar />}
+          {!isMaintenanceModule && !isSystemModule && !isEngineeringModule && !isAiModule && <SnapshotStatusBar />}
           <Dropdown
             menu={{ items: [
               { key: 'password', icon: <KeyOutlined />, label: '修改密码', onClick: () => setPasswordOpen(true) },

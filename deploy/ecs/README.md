@@ -95,6 +95,65 @@ docker compose --env-file .env up -d --build
    也可在 ECS 上通过 `docker compose exec -T mysql mysql ...` 导入。
 3. 字符集务必 `utf8mb4`，时区 Asia/Shanghai（my.cnf 已设）。
 
+## 内部 AI 助手（查数 / 报告 / 问答）上线步骤
+
+这个模块是**可选**的：不配置也能正常发布，只是 `/biz/ai` 页面会提示「只读数据源未配置」，
+其它所有页面完全不受影响。要启用，按下面三步做。
+
+### 1. 建只读账号（一次性，需 root）
+
+```bash
+# 在服务器上执行；先把文件里的库名/密码改成本环境的值
+docker compose -f deploy/ecs/compose.yml exec -T mysql \
+  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" < deploy/ecs/sql/ai-readonly-user.sql
+
+# 验收：三条必须「两拒一过」
+docker compose -f deploy/ecs/compose.yml exec -T mysql \
+  mysql -uai_ro -p'<密码>' -e "SELECT COUNT(*) FROM biz_assessment_record;"      # 通过
+docker compose -f deploy/ecs/compose.yml exec -T mysql \
+  mysql -uai_ro -p'<密码>' -e "SELECT COUNT(*) FROM biz_users;"                 # ERROR 1142
+docker compose -f deploy/ecs/compose.yml exec -T mysql \
+  mysql -uai_ro -p'<密码>' -e "SELECT COUNT(*) FROM mysql.user;"                # ERROR 1142
+```
+
+### 2. 服务器 `.env` 追加（不要提交到仓库）
+
+```ini
+READONLY_DSN=mysql://ai_ro:<密码>@mysql:3306/<库名>
+AI_SQLITE_PATH=/app/data/ai/ai.sqlite
+VECTOR_PATH=/app/data/ai/vectors
+MAX_CONCURRENCY=2
+AI_MAX_ROWS=500
+AI_RAG_TOP_K=5
+ENABLE_LLM=false
+```
+
+密码含 `@ : / #` 等字符时必须 URL 编码，否则 DSN 会被解析错。
+
+### 3. 发布并验证
+
+```bash
+bash deploy/ecs/biz-deploy.sh          # 脚本会自动建 $DATA_ROOT/ai 并 chown 10001
+curl -s https://<域名>/api/health/live # 期望 200
+```
+
+登录后在「智能助手」页提问，例如「2026-09 后评估排名」。
+超管可访问 `/api/biz/ai/status` 查看各组件状态（只读库是否连上、意图是否被剔除、飞轮条数）。
+
+### RAG 知识库（可选，独立手动执行）
+
+```bash
+docker compose -f deploy/ecs/compose.yml exec -T api \
+  node dist/ai/rag/rag.ingest.js --dir /app/docs
+```
+文件通过挂载进容器，或先 `docker cp` 进去；重复执行会按来源整体替换，不会重复。
+
+### 回退
+
+- **关掉功能**：`.env` 里把 `READONLY_DSN=` 留空并 `docker compose up -d api`，AI 接口返回「未配置」，主站无影响。
+- **彻底回退代码**：`git reset --hard backup/pre-ai-20261022` 后重新部署（本次没有 MySQL 迁移，回退不需要动数据库）。
+- **清理本地数据**：删掉 `$DATA_ROOT/ai` 目录即可（只含 AI 片段与审计日志，不涉及业务数据）。
+
 ## 备注
 
 - 数据库网络 `biz_db` 为 `internal: true`，仅容器间可达，**不会**暴露到公网。

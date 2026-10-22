@@ -34,6 +34,11 @@ const localTests = [
   'apps/api/test/workbook-policy.test.cjs',
   'scripts/test/migrate-import-job-files.test.mjs',
   'scripts/test/m7-screenshot-output.test.mjs',
+  // 内部 AI 模块（规则主路 / 护栏 / 默认禁用 LLM / 接线自检）
+  'apps/api/test/ai-sql-guard.test.cjs',
+  'apps/api/test/ai-intent-match.test.cjs',
+  'apps/api/test/ai-llm-disabled.test.cjs',
+  'scripts/test/check-ai-module-wiring.test.mjs',
 ];
 
 const i1EnvironmentNames = [

@@ -127,6 +127,24 @@ log "应用数据库迁移（复用 api 镜像）"
 docker compose -f compose.yml run --rm -e MIGRATION_APPROVED=true \
   --entrypoint node api scripts/db/migrate.mjs up
 
+# ---------- 5.5 AI 数据目录（必须在挂卷启动前准备好）----------
+# 容器以 UID 10001 运行。如果 ${DATA_ROOT}/ai 不存在，docker 会以 root 建一个空目录挂进去，
+# 容器内写 sqlite 直接 EACCES —— 表现是「主业务一切正常，只有 AI 页第一次提问就 500」，
+# 这种问题从表象极难定位，所以放在启动前显式处理。
+mkdir -p "${DATA_ROOT}/ai"
+chown -R 10001:10001 "${DATA_ROOT}/ai"
+log "AI 数据目录就绪: ${DATA_ROOT}/ai (owner 10001)"
+
+# AI 配置自检：只提示、不中止。AI 是附加能力，配置缺失不应阻断主站发布。
+if [ -z "${READONLY_DSN:-}" ]; then
+  log "【提示】.env 未配置 READONLY_DSN：AI 查数将返回「未配置」，其余功能不受影响"
+else
+  log "AI 只读数据源已配置（READONLY_DSN 已设置）"
+fi
+if [ "${ENABLE_LLM:-false}" = "true" ]; then
+  log "【注意】ENABLE_LLM=true：本次发布会启用大模型链路，请确认已通过隐私评审"
+fi
+
 # ---------- 6. 重建并启动容器（证书/数据卷在宿主机，不受影响）----------
 log "重建并启动服务"
 docker compose -f compose.yml up -d

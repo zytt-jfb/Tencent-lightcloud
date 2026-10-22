@@ -83,6 +83,10 @@ RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --create-home --sh
 WORKDIR /app
 COPY --from=builder --chown=10001:10001 /app/deploy ./
 
+# AI 本地库目录：容器以非 root（UID 10001）运行，挂卷时若宿主目录属主不对会写不进去。
+# 这里先建好目录并交给 10001，宿主机侧由 biz-deploy.sh chown 对齐。
+RUN mkdir -p /app/data/ai && chown -R 10001:10001 /app/data
+
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD wget -qO- http://localhost:${PORT:-3000}/api/health/live || exit 1
 

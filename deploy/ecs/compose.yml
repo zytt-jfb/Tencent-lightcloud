@@ -100,8 +100,26 @@ services:
       CORS_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
       WECHAT_APPID: ${WECHAT_APPID:-}
       WECHAT_SECRET: ${WECHAT_SECRET:-}
+      # ---- 内部 AI 助手（全部可选；缺失只会让 AI 接口返回「未配置」，不影响主站）----
+      # 刻意不用 :? 必填：AI 是附加能力，不能因为少一个变量就让整个 compose 起不来
+      AI_ENABLED: ${AI_ENABLED:-true}
+      ENABLE_LLM: ${ENABLE_LLM:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-local-ollama}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://127.0.0.1:11434}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      AI_CLOUD_ALLOW: ${AI_CLOUD_ALLOW:-false}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-120000}
+      READONLY_DSN: ${READONLY_DSN:-}
+      AI_SQLITE_PATH: ${AI_SQLITE_PATH:-/app/data/ai/ai.sqlite}
+      VECTOR_PATH: ${VECTOR_PATH:-/app/data/ai/vectors}
+      MAX_CONCURRENCY: ${MAX_CONCURRENCY:-2}
+      AI_MAX_ROWS: ${AI_MAX_ROWS:-500}
+      AI_RAG_TOP_K: ${AI_RAG_TOP_K:-5}
     volumes:
       - ${DATA_ROOT}/source-files:/tmp/biz-reporting-source-files
+      # AI 本地库（RAG 片段 + 数据飞轮）。目录必须存在且属主为 10001，
+      # 由 deploy/ecs/biz-deploy.sh 在启动前创建并 chown；否则 sqlite 写入会 EACCES。
+      - ${DATA_ROOT}/ai:/app/data/ai
     depends_on:
       mysql:
         condition: service_healthy
