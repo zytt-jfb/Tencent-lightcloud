@@ -428,7 +428,15 @@ export interface OfflineCompletionDto {
   attachmentRef?: string | null;
 }
 
-export function bizOfflineList(params?: { cityId?: string; status?: string }): Promise<{ items: Array<Record<string, unknown>> }> {
+/** 完工/成本列表统一返回结构：items + total（分页后 total 仍是全量条数，用于判断是否被截断） */
+export interface BizPagedList<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function bizOfflineList(params?: { cityId?: string; status?: string; businessMonth?: string; contractId?: string; page?: number; pageSize?: number }): Promise<BizPagedList<Record<string, unknown>>> {
   return request.get('/biz/offline-completions', { params }).then((r) => r.data);
 }
 
@@ -474,7 +482,7 @@ export interface CostEntryDto {
   description?: string | null;
 }
 
-export function bizCostList(params?: { cityId?: string; status?: string; businessMonth?: string; year?: string; categoryCode?: string }): Promise<{ items: Array<Record<string, unknown>> }> {
+export function bizCostList(params?: { cityId?: string; status?: string; businessMonth?: string; year?: string; categoryCode?: string; page?: number; pageSize?: number }): Promise<BizPagedList<Record<string, unknown>>> {
   return request.get('/biz/costs', { params }).then((r) => r.data);
 }
 
@@ -482,7 +490,8 @@ export function bizCostCategories(): Promise<{ items: Array<{ id: string; code: 
   return request.get('/biz/costs/categories/list').then((r) => r.data);
 }
 
-export function bizCostSaveMonthly(dto: { cityId?: string | null; businessMonth: string; submit?: boolean; entries: Array<{ categoryCode: string; amountFen?: number; description?: string | null }> }): Promise<{ items: Array<Record<string, unknown>> }> {
+/** 月度填报：skipped 是后端明确告知「这条没保存」的分类（如已有生效中记录），必须提示用户 */
+export function bizCostSaveMonthly(dto: { cityId?: string | null; businessMonth: string; submit?: boolean; entries: Array<{ categoryCode: string; amountFen?: number; description?: string | null }> }): Promise<{ items: Array<Record<string, unknown>>; skipped: Array<{ categoryCode: string; status: string; reason: string }> }> {
   return request.post('/biz/costs/monthly', dto).then((r) => r.data);
 }
 
@@ -496,6 +505,11 @@ export function bizCostUpdate(id: string, dto: Partial<CostEntryDto>): Promise<R
 
 export function bizCostSubmit(id: string): Promise<Record<string, unknown>> {
   return request.post(`/biz/costs/${id}/submit`).then((r) => r.data);
+}
+
+/** 撤回：把已提交/已生效记录打回草稿（仅提交人本人或超管） */
+export function bizCostWithdraw(id: string): Promise<Record<string, unknown>> {
+  return request.post(`/biz/costs/${id}/withdraw`).then((r) => r.data);
 }
 
 export function bizCostApprove(id: string): Promise<Record<string, unknown>> {

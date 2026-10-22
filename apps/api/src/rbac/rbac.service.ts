@@ -54,6 +54,11 @@ export interface BizAuthContext {
  */
 @Injectable()
 export class RbacService {
+  /** 权限上下文短期缓存：键 `userId:authVersion`，任何权限/角色/范围/密码变更都会换键 */
+  private readonly contextCache = new Map<string, { context: BizAuthContext; expiresAt: number }>();
+  private static readonly AUTH_CONTEXT_CACHE_MS = 5_000;
+  private static readonly AUTH_CONTEXT_CACHE_MAX = 2_000;
+
   constructor(
     @InjectRepository(PlatformUserEntity)
     private readonly userRepo: Repository<PlatformUserEntity>,
@@ -76,12 +81,36 @@ export class RbacService {
     private readonly accessScope: AccessScopeService,
   ) {}
 
-  /** 加载用户完整权限上下文（角色默认 + 账号例外合并） */
+  /**
+   * 加载用户完整权限上下文（角色默认 + 账号例外合并）。
+   * 每个请求都会走这里（biz-jwt.strategy），原实现固定 6 次查询
+   * （user / userRole / role / rolePermission / override / scopeGrant）。
+   * 这里加一个按 `userId + authVersion` 失效的短期缓存：
+   * 改角色、改权限例外、改数据范围、改密码都会 `authVersion += 1`，因此缓存必然随之失效，
+   * 「停用账号立即生效」这类安全性不受影响，只是把重复计算从 6 次查询降到 1 次。
+   */
   async loadUserAuthContext(userId: string): Promise<BizAuthContext> {
     const user = await this.userRepo.findOneBy({ id: userId });
     if (!user) throw new NotFoundException('账号不存在');
     if (user.status !== 'enabled') throw new ForbiddenException('账号已被停用');
 
+    const cacheKey = `${userId}:${user.authVersion}`;
+    const cached = this.contextCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      // 返回浅拷贝 + 新的 Set：多个并发请求不能共享同一个可变 Set 实例
+      return { ...cached.context, permissionCodes: new Set(cached.context.permissionCodes) };
+    }
+
+    const context = await this.buildAuthContext(user, userId);
+    if (this.contextCache.size >= RbacService.AUTH_CONTEXT_CACHE_MAX) {
+      // 简单的整体淘汰：缓存只做热点加速，不追求精确 LRU
+      this.contextCache.clear();
+    }
+    this.contextCache.set(cacheKey, { context, expiresAt: Date.now() + RbacService.AUTH_CONTEXT_CACHE_MS });
+    return { ...context, permissionCodes: new Set(context.permissionCodes) };
+  }
+
+  private async buildAuthContext(user: PlatformUserEntity, userId: string): Promise<BizAuthContext> {
     const bindings = await this.userRoleRepo.find({ where: { userId: user.id }, order: { isPrimary: 'DESC', createdAt: 'ASC' } });
     if (!bindings.length) throw new ForbiddenException('账号未配置角色');
     const roles = [...new Set(bindings.map((binding) => binding.roleCode))];

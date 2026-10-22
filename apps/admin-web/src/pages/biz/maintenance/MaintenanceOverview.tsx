@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Col, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Col, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { ReloadOutlined, RightOutlined } from '@ant-design/icons';
 import { maintenanceOverview, type MaintenanceOverview as OverviewData, type MaintenanceReminder } from '@/api/maintenance.api';
 
@@ -40,7 +40,7 @@ export default function MaintenanceOverview() {
         <Typography.Title level={4} style={{ margin: 0 }}>数据总览</Typography.Title>
         <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load(windowDays)}>刷新</Button>
       </Space>
-      <Row gutter={[24, 16]} style={{ marginBottom: 32 }}>
+      <Row gutter={[24, 16]} style={{ marginBottom: 16 }}>
         {kinds.map((kind) => (
           <Col xs={12} md={6} key={kind}><Statistic title={`${labels[kind]}总数`} value={data?.counts[kind] ?? 0} /></Col>
         ))}
@@ -55,6 +55,17 @@ export default function MaintenanceOverview() {
           )}
         </Col>
       </Row>
+      {/* 数据质量告警：这些 org_city 匹配不上地市字典，地市账号按中文名做范围过滤时永远看不到它们，
+          表面现象就是「总数对不上、又查不到少在哪」。必须显式提示，而不是让人自己去对账。 */}
+      {data && data.unrecognizedCities.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`有 ${data.unrecognizedCities.reduce((sum, item) => sum + item.count, 0)} 条记录的地市匹配不上字典，所有地市账号都看不到`}
+          description={<Space direction="vertical" size={2}>{data.unrecognizedCities.map((item) => <Typography.Text key={item.city} style={{ fontSize: 12 }}>「{item.city}」{item.count} 条</Typography.Text>)}<Typography.Text type="secondary" style={{ fontSize: 12 }}>请到「省市设置」补充地市或别名，或修正这些记录的所属地市。</Typography.Text></Space>}
+        />
+      )}
       <Space style={{ marginBottom: 16 }} wrap>
         <Typography.Title level={5} style={{ margin: 0 }}>到期提醒</Typography.Title>
         <Select value={windowDays} onChange={setWindowDays} options={[7, 30, 60, 90].map((value) => ({ value, label: `${value}天内到期` }))} />

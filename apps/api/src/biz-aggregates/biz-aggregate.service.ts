@@ -369,6 +369,25 @@ export class BizAggregateService {
 
   // ================= 分析聚合 API =================
 
+  /** 经营分析域范围前置拒绝：contract 账号无地域维度，overview/trend/overrunList 统一拒绝 */
+  private assertAnalysisScope(auth: BizAuthContext): void {
+    if (auth.dataScope.scopeType === 'contract') throw new ForbiddenException('当前账号无经营分析数据范围');
+  }
+
+  /**
+   * 请求参数里的地市必须落在账号数据范围内。
+   * 原实现只把范围条件和 cityId 参数 AND 在一起：越界 cityId 会查到空集，
+   * 接口返回 200 + 全 0，用户看到的是「该地市没有数据」而不是「你没权限」，
+   * 比直接 403 更容易误导（也会让人误以为是数据缺失）。这里显式 403。
+   */
+  private async assertCityParamsInScope(auth: BizAuthContext, cityIds: Array<string | undefined | null>): Promise<void> {
+    const requested = cityIds.filter((id): id is string => Boolean(id));
+    if (!requested.length) return;
+    if (auth.isSuperAdmin || auth.dataScope.scopeType === 'all') return;
+    if (auth.dataScope.scopeType === 'contract') throw new ForbiddenException('当前账号无经营分析数据范围');
+    await this.rbac.assertCityIdsScope(auth, requested);
+  }
+
   /** 分析域数据范围过滤：all 不限；city→地市；province→省下辖市；contract 无地域维度→拒绝（alias 参数化，明细侧复用） */
   private applyAggScope(qb: { andWhere: (cond: string, params?: Record<string, unknown>) => unknown }, auth: BizAuthContext, alias = 'a', provinceId?: string): void {
     const scope = auth.dataScope;
@@ -468,6 +487,8 @@ export class BizAggregateService {
   /** 概览：经营金额按年度 / 多月 / 多省 / 多地市交集过滤（权限过滤始终生效）
    *  注：contractInventory 仍按单选口径计算合同库存（保持既有合同数/合同额分摊口径不变） */
   async overview(auth: BizAuthContext, year?: string, month?: string, cityId?: string, provinceId?: string, cityIds?: string[], provinceIds?: string[], months?: string[]) {
+    this.assertAnalysisScope(auth);
+    await this.assertCityParamsInScope(auth, [cityId, ...(cityIds ?? [])]);
     const qb = this.aggRepo.createQueryBuilder('a');
     this.applyAggScope(qb, auth, 'a', provinceId);
     if (provinceIds?.length) qb.andWhere('a.cityId IN (SELECT id FROM biz_cities WHERE province_id IN (:...ovProvinceIds))', { ovProvinceIds: provinceIds });
@@ -496,6 +517,8 @@ export class BizAggregateService {
 
   /** 趋势：按年度 / 多月 / 多省 / 多地市做交集过滤（省份走 biz_cities 子查询，聚合表无 province_id 列） */
   async trend(auth: BizAuthContext, limit = 12, cityId?: string, year?: string, provinceId?: string, cityIds?: string[], provinceIds?: string[], months?: string[]) {
+    this.assertAnalysisScope(auth);
+    await this.assertCityParamsInScope(auth, [cityId, ...(cityIds ?? [])]);
     const trendQb = this.aggRepo.createQueryBuilder('a');
     this.applyAggScope(trendQb, auth, 'a', provinceId);
     if (provinceIds?.length) trendQb.andWhere('a.cityId IN (SELECT id FROM biz_cities WHERE province_id IN (:...trendProvinceIds))', { trendProvinceIds: provinceIds });
@@ -519,6 +542,8 @@ export class BizAggregateService {
 
   /** 地市对比：按年度 / 多月 / 多省 / 多地市做交集过滤（权限过滤始终生效，不因筛选放宽） */
   async byCity(auth: BizAuthContext, year?: string, month?: string, provinceId?: string, cityIds?: string[], provinceIds?: string[], months?: string[]) {
+    this.assertAnalysisScope(auth);
+    await this.assertCityParamsInScope(auth, cityIds ?? []);
     // 1) 合同+分配表出发：地市库存（含只有分配、无经营数据的地市）
     const contracts = (await this.contractRepo.find({ where: { deletedAt: IsNull() }, select: { id: true, provinceId: true, taxInclusiveAmountFen: true } })).filter((contract) => {
       if (provinceId && contract.provinceId !== provinceId) return false;
@@ -625,6 +650,10 @@ export class BizAggregateService {
 
   /** 合同到期/满额提醒（实时计算，不依赖手工 refresh-alerts 与汇总重算）：到期按 endDate+系统阈值，满额按订单/已审核线下完工明细实时聚合；按 auth 数据范围过滤 */
   async analysisAlerts(auth: BizAuthContext, cityId?: string, provinceId?: string): Promise<Array<Record<string, unknown>>> {
+    // analysis.read 仅 admin/city_user 持有（012 种子），contract scope 到不了这里；
+    // 与 overview/trend/byCity 统一：异地 cityId 直接 403，不静默返回空列表
+    this.assertAnalysisScope(auth);
+    await this.assertCityParamsInScope(auth, [cityId]);
     const contracts = await this.contractRepo.find({ where: { deletedAt: IsNull() }, order: { endDate: 'ASC' } });
     const scope = auth.dataScope;
     // 预加载：合同→分配地市（city 范围可见性 + cityId 附加筛选）
@@ -677,49 +706,121 @@ export class BizAggregateService {
     return alerts.slice(0, 100);
   }
 
-  async overrunList(auth: BizAuthContext, year?: string, month?: string, cityId?: string, provinceId?: string): Promise<Array<Record<string, unknown>>> {
-    // 合同超额：合同累计完工 > 合同额；地市超额：地市累计完工 > 分配额度（支持整页组合筛选 year/month/cityId）
-    this.applyAggScope({ andWhere: () => undefined }, auth); // contract scope 统一拒绝（与 overview/trend 一致）
-    const contracts = (await this.contractRepo.find({ where: { deletedAt: IsNull() } })).filter((contract) => !provinceId || contract.provinceId === provinceId);
+  /**
+   * 超额维度实时计算（唯一口径：超额清单页与订单行超额筛选共用）
+   * 口径：
+   *  - 合同超额：合同累计完工（订单 + 已审核线下完工，按账号数据范围收敛）> 合同含税总额；
+   *  - 地市超额：(合同 + 地市) 累计完工 > 该地市的 active 分配额度。
+   * 实现：两次 GROUP BY 汇总取代原先「逐合同一次查询 + 逐分配一次查询」，
+   *      合同/分配数量级上升时查询次数从 O(N+M) 降为 O(1)。
+   */
+  private async computeOverrun(
+    auth: BizAuthContext,
+    opts: { year?: string; month?: string; cityId?: string; provinceId?: string } = {},
+  ): Promise<{
+    contracts: BizContractEntity[];
+    allocs: BizContractCityAllocationEntity[];
+    contractOverrunIds: Set<string>;
+    cityOverrunKeys: Set<string>;
+    contractCompletion: Map<string, number>;
+    cityCompletion: Map<string, number>;
+  }> {
+    const { year, month, cityId, provinceId } = opts;
+    const contracts = (await this.contractRepo.find({ where: { deletedAt: IsNull() } }))
+      .filter((contract) => !provinceId || contract.provinceId === provinceId);
     const allocs = await this.allocRepo.findBy({ status: 'active' });
     const citiesByContract = new Map<string, Set<string>>();
     for (const a of allocs) {
       if (!citiesByContract.has(a.contractId)) citiesByContract.set(a.contractId, new Set());
       citiesByContract.get(a.contractId)!.add(a.cityId);
     }
-    const result: Array<Record<string, unknown>> = [];
-    const aggQb = (contractId?: string, aggCityId?: string) => {
+
+    // 汇总基数查询：与数据范围、年月筛选完全一致（仅统计带合同维度的汇总行）
+    const baseQb = () => {
       const qb = this.aggRepo.createQueryBuilder('a');
       this.applyAggScope(qb, auth, 'a', provinceId);
-      if (contractId) qb.andWhere('a.contractId = :contractId', { contractId });
-      if (aggCityId) qb.andWhere('a.cityId = :aggCityId', { aggCityId });
       if (month) qb.andWhere('a.businessMonth = :month', { month });
       else if (year) qb.andWhere('a.businessMonth LIKE :yearPattern', { yearPattern: `${year}-%` });
       return qb;
     };
+    const sumExpr = '(a.orderCompletionFen + a.offlineCompletionFen)';
+    const contractRows = await baseQb()
+      .select('a.contractId', 'contractId')
+      .addSelect(`SUM(${sumExpr})`, 'total')
+      .where('a.contractId IS NOT NULL')
+      .groupBy('a.contractId')
+      .getRawMany<{ contractId: string; total: string | number | null }>();
+    const cityRows = await baseQb()
+      .select('a.contractId', 'contractId')
+      .addSelect('a.cityId', 'cityId')
+      .addSelect(`SUM(${sumExpr})`, 'total')
+      .where('a.contractId IS NOT NULL')
+      .andWhere('a.cityId IS NOT NULL')
+      .groupBy('a.contractId, a.cityId')
+      .getRawMany<{ contractId: string; cityId: string; total: string | number | null }>();
+
+    const contractCompletion = new Map<string, number>();
+    for (const row of contractRows) {
+      contractCompletion.set(row.contractId, (contractCompletion.get(row.contractId) ?? 0) + (Number(row.total) || 0));
+    }
+    const cityCompletion = new Map<string, number>();
+    for (const row of cityRows) {
+      const key = `${row.contractId}|${row.cityId}`;
+      cityCompletion.set(key, (cityCompletion.get(key) ?? 0) + (Number(row.total) || 0));
+    }
+
+    const contractOverrunIds = new Set<string>();
     for (const contract of contracts) {
-      // 合同超额只统计可见合同（与详情/重算一致），cityId 附加过滤该地市分配
       if (!this.isContractVisible(auth, contract, cityId, citiesByContract)) continue;
-      const aggs = await aggQb(contract.id).getMany();
-      const totalCompletion = aggs.reduce((s, a) => s + Number(a.orderCompletionFen) + Number(a.offlineCompletionFen), 0);
-      const amount = Number(contract.taxInclusiveAmountFen) || 0;
-      if (totalCompletion > amount) {
-        result.push({ type: 'contract', id: contract.id, contractNo: contract.contractNo, completionFen: totalCompletion, quotaFen: amount, overrunFen: totalCompletion - amount });
+      if ((contractCompletion.get(contract.id) ?? 0) > (Number(contract.taxInclusiveAmountFen) || 0)) {
+        contractOverrunIds.add(contract.id);
       }
     }
+    const cityOverrunKeys = new Set<string>();
     for (const alloc of allocs) {
       const contract = contracts.find((c) => c.id === alloc.contractId);
       if (!contract || !this.isContractVisible(auth, contract, undefined, citiesByContract)) continue;
       if (cityId && alloc.cityId !== cityId) continue;
       // 地市超额必须按 contractId+cityId 汇总（与分配额度同粒度；一个地市多个合同互不混淆）
-      const aggs = await aggQb(alloc.contractId, alloc.cityId).getMany();
-      const total = aggs.reduce((s, a) => s + Number(a.orderCompletionFen) + Number(a.offlineCompletionFen), 0);
-      const quota = Number(alloc.quotaFen) || 0;
-      if (total > quota) {
-        result.push({ type: 'city', contractId: alloc.contractId, cityId: alloc.cityId, completionFen: total, quotaFen: quota, overrunFen: total - quota });
+      if ((cityCompletion.get(`${alloc.contractId}|${alloc.cityId}`) ?? 0) > (Number(alloc.quotaFen) || 0)) {
+        cityOverrunKeys.add(`${alloc.contractId}|${alloc.cityId}`);
       }
     }
+    return { contracts, allocs, contractOverrunIds, cityOverrunKeys, contractCompletion, cityCompletion };
+  }
+
+  async overrunList(auth: BizAuthContext, year?: string, month?: string, cityId?: string, provinceId?: string): Promise<Array<Record<string, unknown>>> {
+    // 合同超额：合同累计完工 > 合同额；地市超额：地市累计完工 > 分配额度（支持整页组合筛选 year/month/cityId）
+    this.assertAnalysisScope(auth); // contract scope 统一拒绝（与 overview/trend 一致）
+    await this.assertCityParamsInScope(auth, [cityId]); // 异地 cityId 403，不静默返回空
+    const { contracts, allocs, contractOverrunIds, cityOverrunKeys, contractCompletion, cityCompletion } =
+      await this.computeOverrun(auth, { year, month, cityId, provinceId });
+    const result: Array<Record<string, unknown>> = [];
+    for (const contract of contracts) {
+      if (!contractOverrunIds.has(contract.id)) continue;
+      const totalCompletion = contractCompletion.get(contract.id) ?? 0;
+      const amount = Number(contract.taxInclusiveAmountFen) || 0;
+      result.push({ type: 'contract', id: contract.id, contractNo: contract.contractNo, completionFen: totalCompletion, quotaFen: amount, overrunFen: totalCompletion - amount });
+    }
+    for (const alloc of allocs) {
+      const key = `${alloc.contractId}|${alloc.cityId}`;
+      if (!cityOverrunKeys.has(key)) continue;
+      const total = cityCompletion.get(key) ?? 0;
+      const quota = Number(alloc.quotaFen) || 0;
+      result.push({ type: 'city', contractId: alloc.contractId, cityId: alloc.cityId, completionFen: total, quotaFen: quota, overrunFen: total - quota });
+    }
     return result;
+  }
+
+  /**
+   * 订单行「超额」筛选用：返回当前累计已超额的合同 ID 与 `合同|地市` 组合。
+   * 与 overrunList 同一口径（全时段累计 + 同一数据范围），
+   * 用于替换 biz_order_rows 上永不为 true 的 city_overrun_flag / contract_overrun_flag 死标记。
+   */
+  async overrunDimensions(auth: BizAuthContext): Promise<{ contractIds: Set<string>; cityKeys: Set<string> }> {
+    this.assertAnalysisScope(auth);
+    const { contractOverrunIds, cityOverrunKeys } = await this.computeOverrun(auth, {});
+    return { contractIds: contractOverrunIds, cityKeys: cityOverrunKeys };
   }
 
   /**

@@ -38,6 +38,7 @@ import { HttpLoggingInterceptor } from './common/http/http-logging.interceptor';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { PerformanceModule } from './performance/performance.module';
 import { BizAssessmentsModule } from './biz-assessments/biz-assessments.module';
+import { WorkbenchModule } from './workbench/workbench.module';
 
 @Module({
   imports: [
@@ -144,6 +145,7 @@ import { BizAssessmentsModule } from './biz-assessments/biz-assessments.module';
     BizCommunicationsModule,
     BizDataDeletionModule,
     MaintenanceModule,
+    WorkbenchModule,
   ],
   controllers: [AppController],
   providers: [

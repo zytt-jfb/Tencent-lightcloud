@@ -110,7 +110,8 @@ export class BizAdminController {
     @Param('id') userId: string,
     @Body() body: { roles?: string[]; grants?: ScopeGrantInput[] },
   ) {
-    await this.adminService.setUserAccess(auth.userId, userId, body.roles ?? [], body.grants ?? []);
+    // roles 缺省 = 只改数据范围、不动角色绑定（避免覆盖多角色配置）
+    await this.adminService.setUserAccess(auth.userId, userId, body.roles, body.grants ?? []);
     return { ok: true };
   }
 

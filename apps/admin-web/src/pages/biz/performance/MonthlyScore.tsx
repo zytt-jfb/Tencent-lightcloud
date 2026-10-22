@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Col, Empty, Radio, Row, Select, Space, Statistic, Table, Typography, message } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
@@ -25,7 +26,7 @@ export default function MonthlyScore() {
   const [data, setData] = useState<PerformanceResult>();
   const [loading, setLoading] = useState(false);
   const [chartMode, setChartMode] = useState<'bar' | 'pie'>('bar');
-  const canExport = useBizPermission('performance.overview.export');
+  const canExport = useBizPermission(BizPermissionCode.PERFORMANCE_OVERVIEW_EXPORT);
 
   useEffect(() => {
     setLoading(true);

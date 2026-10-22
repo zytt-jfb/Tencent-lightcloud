@@ -26,7 +26,7 @@ const Packages = lazy(() => import('@/pages/Packages'));
 const ImportJobs = lazy(() => import('@/pages/ImportJobs'));
 const CityReporting = lazy(() => import('@/pages/CityReporting'));
 const BizLogin = lazy(() => import('@/pages/biz/BizLogin'));
-const BizPortal = lazy(() => import('@/pages/biz/BizPortal'));
+const BizWorkbench = lazy(() => import('@/pages/biz/BizWorkbench'));
 const MaintenancePersonnelList = lazy(() => import('@/pages/biz/maintenance/PersonnelList'));
 const MaintenanceVehicleList = lazy(() => import('@/pages/biz/maintenance/VehicleList'));
 const MaintenanceGeneratorList = lazy(() => import('@/pages/biz/maintenance/GeneratorList'));
@@ -148,7 +148,8 @@ export default function App() {
     {/* 共享筛选选项（年度 / 省份 / 地市）提升到 /biz 布局层，供概览、趋势、地市对比、超额、成本复用 */}
     <Route path="/biz" element={<BizAnalysisOptionsProvider><BizLayout /></BizAnalysisOptionsProvider>}>
       <Route index element={<Navigate to="/biz/portal" replace />} />
-      <Route path="portal" element={<Suspense fallback={<PageLoading />}><BizPortal /></Suspense>} />
+      {/* 登录后的落地页：工作台（原一级模块门户），路径保持 /biz/portal 兼容已有跳转 */}
+      <Route path="portal" element={<Suspense fallback={<PageLoading />}><BizWorkbench /></Suspense>} />
       <Route path="system" element={<Navigate to="/biz/settings" replace />} />
       <Route path="maintenance" element={<Navigate to="/biz/maintenance/overview" replace />} />
       <Route path="maintenance/overview" element={<Suspense fallback={<PageLoading />}><MaintenanceOverview /></Suspense>} />

@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography, message } from 'antd';
@@ -73,7 +74,7 @@ function statusTag(row: MaintenanceReminder) {
 
 export default function ExpiryLedger() {
   const navigate = useNavigate();
-  const canWrite = useBizPermission('maintenance.data.write');
+  const canWrite = useBizPermission(BizPermissionCode.MAINTENANCE_DATA_WRITE);
 
   const [data, setData] = useState<LedgerData>();
   const [loading, setLoading] = useState(false);

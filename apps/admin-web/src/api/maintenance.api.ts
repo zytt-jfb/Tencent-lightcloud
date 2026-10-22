@@ -37,6 +37,8 @@ export type MaintenanceOverview = {
   byKind: Array<{ kind: 'personnel'|'vehicles'|'generators'; category: string; expired: number; dueSoon: number; anomaly: number; total: number }>;
   reminders: MaintenanceReminder[];
   organizations: Array<{ region: string; personnel: number; vehicles: number; generators: number }>;
+  /** 数据质量告警：org_city 匹配不上地市字典的取值（这类记录对地市账号不可见，需人工修正） */
+  unrecognizedCities: Array<{ city: string; count: number }>;
 };
 export async function maintenanceOverview(windowDays = 30): Promise<MaintenanceOverview> {
   return (await request.get('/biz/maintenance/overview', { params: { windowDays } })).data as MaintenanceOverview;

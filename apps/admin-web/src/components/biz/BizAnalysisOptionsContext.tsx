@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { bizAdminProvinces, bizAnalysisYears, bizCities, bizMe } from '@/api/biz.api';
 
@@ -40,8 +41,13 @@ const EMPTY_STATE: AnalysisOptionsState = { years: [], provinces: [], cities: []
 const OptionsContext = createContext<AnalysisOptionsState>(EMPTY_STATE);
 
 /** 选项只在当前登录布局生命周期内加载；不能跨账号缓存权限范围内的城市。 */
-function fetchOptions(): Promise<CachedOptions> {
-  return Promise.all([bizAnalysisYears(), bizAdminProvinces(), bizCities()]).then(([yearResult, provinceResult, cityResult]) => ({
+function fetchOptions(canReadRegions: boolean): Promise<CachedOptions> {
+  // 省市字典接口（/biz/admin/provinces|cities）挂在「用户管理」权限下，地市账号请求必然 403。
+  // 无权限时直接给空数组：数据结果与原来一致，但不会在落地页弹权限错误。
+  const regions = canReadRegions
+    ? Promise.all([bizAdminProvinces(), bizCities()])
+    : Promise.resolve([{ items: [] }, { items: [] }] as [{ items: Array<{ id: string; name: string }> }, { items: Array<{ id: string; name: string; provinceId: string }> }]);
+  return Promise.all([bizAnalysisYears(), regions]).then(([yearResult, [provinceResult, cityResult]]) => ({
     years: (yearResult.items ?? []).map(String),
     provinces: (provinceResult.items ?? []).map((p) => ({ id: p.id, name: p.name })) as AnalysisOptionProvince[],
     cities: (cityResult.items ?? []).map((c) => ({ id: c.id, name: c.name, provinceId: c.provinceId })) as AnalysisOptionCity[],
@@ -54,21 +60,24 @@ export function BizAnalysisOptionsProvider({ children }: { children: ReactNode }
   useEffect(() => {
     let active = true;
     setState((prev) => ({ ...prev, loading: true, error: null }));
-    fetchOptions().then((data) => {
-      if (active) setState((prev) => ({ ...prev, ...data, loading: false, error: null }));
-    }).catch(() => {
-      if (active) setState({ years: [], provinces: [], cities: [], accessibleCityIds: null, loading: false, error: '筛选选项加载失败，请刷新重试' });
-    });
-    // 当前账号可访问城市（数据范围）随登录用户变化，每次挂载都拉取，不模块级缓存
+    // 先取当前账号权限，再决定要不要拉省市字典；顺带把可访问城市（数据范围）带回来。
     void bizMe()
+      .catch(() => null)
       .then((me) => {
         if (!active) return;
-        const cityIds = me.dataScope?.cityIds;
-        // An empty list means the scope is not restricted to explicit cities
-        // (for example super_admin/admin), rather than access to zero cities.
-        setState((prev) => ({ ...prev, accessibleCityIds: cityIds?.length ? cityIds : null }));
+        const canReadRegions = Boolean(me && (me.roleCode === 'super_admin' || me.permissions.includes(BizPermissionCode.OPERATION_USER_MANAGE)));
+        // cityIds 为空表示范围没有限定到具体城市（如 super_admin/admin），不是「零个城市」
+        setState((prev) => ({
+          ...prev,
+          accessibleCityIds: me?.dataScope?.cityIds?.length ? me.dataScope.cityIds : null,
+        }));
+        return fetchOptions(canReadRegions).then((data) => {
+          if (active) setState((prev) => ({ ...prev, ...data, loading: false, error: null }));
+        });
       })
-      .catch(() => { if (active) setState((prev) => ({ ...prev, accessibleCityIds: null })); });
+      .catch(() => {
+        if (active) setState({ years: [], provinces: [], cities: [], accessibleCityIds: null, loading: false, error: '筛选选项加载失败，请刷新重试' });
+      });
     return () => {
       active = false;
     };

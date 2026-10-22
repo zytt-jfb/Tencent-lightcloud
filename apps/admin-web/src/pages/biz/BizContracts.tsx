@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBizPermission } from '@/utils/biz-permission';
@@ -48,15 +49,15 @@ function formatYearMonth(value: string | null | undefined): string {
 /** 合同管理（新基线 M3）：列表 + 全屏详情弹窗 */
 export default function BizContracts() {
   const navigate = useNavigate();
-  const canUploadOrder = useBizPermission('operation.order.upload');
-  const canCreateContract = useBizPermission('operation.contract.create');
-  const canUpdateContract = useBizPermission('operation.contract.update');
-  const canDeleteContract = useBizPermission('operation.contract.delete');
-  const canBatchCreate = useBizPermission('operation.contract.batch_create');
-  const canBatchUpdate = useBizPermission('operation.contract.batch_update');
-  const canBatchDelete = useBizPermission('operation.contract.batch_delete');
-  const canRestoreContract = useBizPermission('operation.contract.restore');
-  const canExportContract = useBizPermission('operation.contract.export');
+  const canUploadOrder = useBizPermission(BizPermissionCode.OPERATION_ORDER_UPLOAD);
+  const canCreateContract = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_CREATE);
+  const canUpdateContract = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_UPDATE);
+  const canDeleteContract = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_DELETE);
+  const canBatchCreate = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_BATCH_CREATE);
+  const canBatchUpdate = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_BATCH_UPDATE);
+  const canBatchDelete = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_BATCH_DELETE);
+  const canRestoreContract = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_RESTORE);
+  const canExportContract = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_EXPORT);
   const [items, setItems] = useState<BizContractItem[]>([]);
   const [exporting, setExporting] = useState(false);
   const [pendingItems, setPendingItems] = useState<BizPendingContractRow[]>([]);

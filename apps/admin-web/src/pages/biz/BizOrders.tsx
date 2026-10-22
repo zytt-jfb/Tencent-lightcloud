@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBizPermission } from '@/utils/biz-permission';
@@ -34,7 +35,7 @@ function fenToYuan(fen: number | null): string {
 /** 订单管理（新基线 M4）：上传/批次/错误报告/订单行（敏感列脱敏） */
 export default function BizOrders() {
   const navigate = useNavigate();
-  const canUpload = useBizPermission('operation.order.upload');
+  const canUpload = useBizPermission(BizPermissionCode.OPERATION_ORDER_UPLOAD);
   const [batches, setBatches] = useState<Array<Record<string, unknown>>>([]);
   // 模块快照概览：只读展示（数据来自系统设置里"各模块快照"最近一次构建）
   const [orderSnapshot, setOrderSnapshot] = useState<BizModuleSnapshotView | null>(null);

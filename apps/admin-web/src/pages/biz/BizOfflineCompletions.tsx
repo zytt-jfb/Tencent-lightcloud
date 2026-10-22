@@ -30,6 +30,10 @@ function fenToYuan(fen: number | null): string {
 export default function BizOfflineCompletions() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [contracts, setContracts] = useState<Array<{ id: string; contractNo: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -46,13 +50,18 @@ export default function BizOfflineCompletions() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [off, c] = await Promise.all([bizOfflineList(), bizContractList()]);
+      // 服务端分页：完工记录按 合同×地市×月份 增长，全量拉回会随年限线性变慢
+      const [off, c] = await Promise.all([
+        bizOfflineList({ page, pageSize, ...(statusFilter ? { status: statusFilter } : {}) }),
+        bizContractList(),
+      ]);
       setItems(off.items);
+      setTotal(off.total);
       setContracts(c.items.map((x) => ({ id: x.id, contractNo: x.contractNo })));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, statusFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -174,8 +183,25 @@ export default function BizOfflineCompletions() {
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建完工</Button>
         </Space>
       </div>
-      <Card>
-        <Table scroll={{ x: "max-content" }}  rowKey="id" loading={loading} columns={columns} dataSource={items} pagination={{ pageSize: 10 }} />
+      <Card
+        extra={<Select allowClear placeholder="按状态筛选" value={statusFilter} onChange={(value) => { setStatusFilter(value); setPage(1); }} style={{ width: 160 }} options={[{ value: 'draft', label: '草稿' }, { value: 'pending', label: '待审核' }, { value: 'approved', label: '已通过' }, { value: 'rejected', label: '已驳回' }, { value: 'voided', label: '已作废' }]} />}
+      >
+        <Table
+          scroll={{ x: "max-content" }}
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={items}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showQuickJumper: true,
+            showTotal: (value) => `共 ${value} 条`,
+            onChange: (nextPage, nextPageSize) => { setPage(nextPage); setPageSize(nextPageSize); },
+          }}
+        />
       </Card>
 
       <Drawer title="新建线下完工（草稿）" open={createOpen} onClose={() => setCreateOpen(false)} width={420}>

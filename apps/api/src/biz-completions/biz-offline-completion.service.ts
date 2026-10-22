@@ -11,6 +11,10 @@ import { BizContractFeeRateEntity } from '../contracts/biz-contract-fee-rate.ent
 import { RbacService, BizAuthContext } from '../rbac/rbac.service';
 import { BizAggregateService } from '../biz-aggregates/biz-aggregate.service';
 import { CityEntity } from '../main-data/city.entity';
+import { rethrowOptimisticLock } from '../common/optimistic-lock';
+
+/** 未显式分页时的单次返回上限（防止省级账号一次性拉全表） */
+const MAX_UNPAGINATED_ROWS = 5000;
 
 export interface OfflineCompletionDto {
   contractId: string;
@@ -77,7 +81,7 @@ export class BizOfflineCompletionService {
 
   // ================= 列表/详情 =================
 
-  async list(auth: BizAuthContext, filter: { cityId?: string; status?: string }): Promise<Array<BizOfflineCompletionEntity & { cityName: string }>> {
+  async list(auth: BizAuthContext, filter: { cityId?: string; status?: string; businessMonth?: string; contractId?: string; page?: number; pageSize?: number }): Promise<{ items: Array<BizOfflineCompletionEntity & { cityName: string }>; total: number; page: number; pageSize: number }> {
     if (filter.cityId) await this.assertCityAccess(auth, filter.cityId);
     const qb = this.offlineRepo.createQueryBuilder('o');
     if (auth.dataScope.scopeType === 'contract') throw new ForbiddenException('当前账号无完工数据范围');
@@ -94,11 +98,23 @@ export class BizOfflineCompletionService {
     }
     if (filter.cityId) qb.andWhere('o.cityId = :cityId', { cityId: filter.cityId });
     if (filter.status) qb.andWhere('o.status = :status', { status: filter.status });
-    const items = await qb.orderBy('o.createdAt', 'DESC').getMany();
+    if (filter.businessMonth) qb.andWhere('o.businessMonth = :businessMonth', { businessMonth: filter.businessMonth });
+    if (filter.contractId) qb.andWhere('o.contractId = :contractId', { contractId: filter.contractId });
+    const total = await qb.getCount();
+    // pageSize 缺省 = 全量返回（上限 MAX_UNPAGINATED_ROWS）；显式传值则分页
+    const requestedPageSize = Math.trunc(filter.pageSize ?? 0);
+    const page = Math.max(1, Math.trunc(filter.page ?? 1));
+    const effectivePageSize = requestedPageSize > 0
+      ? Math.min(1000, requestedPageSize)
+      : Math.min(MAX_UNPAGINATED_ROWS, total);
+    const ordered = qb.orderBy('o.createdAt', 'DESC');
+    const items = requestedPageSize > 0
+      ? await ordered.skip((page - 1) * effectivePageSize).take(effectivePageSize).getMany()
+      : await ordered.take(effectivePageSize).getMany();
     const cityIds = [...new Set(items.map((item) => item.cityId).filter(Boolean))];
     const cities = cityIds.length > 0 ? await this.cityRepo.find({ where: { id: In(cityIds) } }) : [];
     const cityNames = new Map(cities.map((city) => [city.id, city.name]));
-    return items.map((item) => ({ ...item, cityName: cityNames.get(item.cityId) ?? item.cityId }));
+    return { items: items.map((item) => ({ ...item, cityName: cityNames.get(item.cityId) ?? item.cityId })), total, page, pageSize: effectivePageSize };
   }
 
   async detail(auth: BizAuthContext, id: string): Promise<BizOfflineCompletionEntity> {
@@ -146,7 +162,6 @@ export class BizOfflineCompletionService {
     await this.assertSubmissionRules(merged);
     // 新 cityId 范围校验（update 允许改城市时，新城市必须在操作人数据范围内）
     if (merged.cityId !== item.cityId) await this.assertCityAccess(auth, merged.cityId);
-    await this.applyRateSnapshot({ ...item, contractId: merged.contractId, cityId: merged.cityId, businessMonth: merged.businessMonth, amountFen: Math.round(merged.amountFen) } as BizOfflineCompletionEntity);
     Object.assign(item, {
       contractId: merged.contractId,
       cityId: merged.cityId,
@@ -155,7 +170,14 @@ export class BizOfflineCompletionService {
       summary: merged.summary,
       attachmentRef: merged.attachmentRef,
     });
-    await this.offlineRepo.save(item); // 乐观锁
+    // 费率快照必须落在 item 上再 save：原先传给 applyRateSnapshot 的是一份展开副本，
+    // 变更被丢弃，等于白算一次（草稿展示的毛利也不会随编辑刷新）。
+    await this.applyRateSnapshot(item);
+    try {
+      await this.offlineRepo.save(item); // 乐观锁
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.update', id);
     return item;
   }
@@ -179,7 +201,11 @@ export class BizOfflineCompletionService {
     item.reviewerId = null;
     item.reviewedAt = null;
     item.reviewComment = null;
-    await this.offlineRepo.save(item);
+    try {
+      await this.offlineRepo.save(item);
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.submit', id);
     return item;
   }
@@ -193,7 +219,11 @@ export class BizOfflineCompletionService {
     item.status = OfflineCompletionStatus.DRAFT;
     item.submittedBy = null;
     item.submittedAt = null;
-    await this.offlineRepo.save(item);
+    try {
+      await this.offlineRepo.save(item);
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.withdraw', id);
     return item;
   }
@@ -244,17 +274,14 @@ export class BizOfflineCompletionService {
     try {
       await this.offlineRepo.save(item); // 乐观锁：并发修改抛 OptimisticLockVersionMismatchError
     } catch (error) {
-      if (error instanceof Error && error.name === 'OptimisticLockVersionMismatchError') {
-        throw new BadRequestException('记录已被他人修改，请刷新后重试');
-      }
-      throw error;
+      rethrowOptimisticLock(error);
     }
     await this.recordOp(auth.userId, 'offline_completion.approve', id);
     void this.aggregates.recalcInternal({ contractId: item.contractId }).catch(() => {});
     return item;
   }
 
-  /** 驳回：原因必填；退回草稿可修改重新提交 */
+  /** 驳回：原因必填；退回草稿可修改重新提交；同步触发重算（否则驳回后经营统计不刷新） */
   async reject(auth: BizAuthContext, id: string, comment: string): Promise<BizOfflineCompletionEntity> {
     const item = await this.getOrFail(id);
     await this.assertCityAccess(auth, item.cityId);
@@ -264,8 +291,13 @@ export class BizOfflineCompletionService {
     item.reviewerId = auth.userId;
     item.reviewedAt = new Date();
     item.reviewComment = comment.trim().slice(0, 500);
-    await this.offlineRepo.save(item);
+    try {
+      await this.offlineRepo.save(item);
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.reject', id);
+    void this.aggregates.recalcInternal({ contractId: item.contractId }).catch(() => {});
     return item;
   }
 
@@ -281,7 +313,11 @@ export class BizOfflineCompletionService {
     item.voidedBy = auth.userId;
     item.voidedAt = new Date();
     item.voidReason = reason.trim().slice(0, 255);
-    await this.offlineRepo.save(item);
+    try {
+      await this.offlineRepo.save(item);
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.void', id);
     void this.aggregates.recalcInternal({ contractId: item.contractId }).catch(() => {});
     return item;
@@ -296,7 +332,11 @@ export class BizOfflineCompletionService {
     item.voidedBy = null;
     item.voidedAt = null;
     item.voidReason = null;
-    await this.offlineRepo.save(item);
+    try {
+      await this.offlineRepo.save(item);
+    } catch (error) {
+      rethrowOptimisticLock(error);
+    }
     await this.recordOp(auth.userId, 'offline_completion.restore', id);
     void this.aggregates.recalcInternal({ contractId: item.contractId }).catch(() => {});
     return item;

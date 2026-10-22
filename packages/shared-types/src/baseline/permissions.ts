@@ -25,6 +25,8 @@ export const BizPermissionCode = {
   // 一级门户
   PORTAL_ENGINEERING_ENTER: 'portal.engineering.enter',
   PORTAL_MAINTENANCE_ENTER: 'portal.maintenance.enter',
+  /** 系统设置一级门户（前端 BizLayout 模块守卫与 BizAdmin 分组都在用，补进常量表） */
+  PORTAL_SYSTEM_ENTER: 'portal.system.enter',
   // 维护管理二级门户
   MAINTENANCE_OPERATION_ENTER: 'maintenance.operation.enter',
   MAINTENANCE_ASSET_ENTER: 'maintenance.asset.enter',
@@ -104,7 +106,16 @@ export const BizPermissionCode = {
 } as const;
 export type BizPermissionCodeValue = (typeof BizPermissionCode)[keyof typeof BizPermissionCode];
 
-/** 四类角色默认权限码（基线 02 TABLE 2-7；super_admin 由服务端通配 ALL，不在此表） */
+/**
+ * 四类角色默认权限码（基线 02 TABLE 2-7；super_admin 由服务端通配 ALL，不在此表）
+ * 注意：此常量当前**不参与运行时**，真正生效的是 apps/api/migration 下的 SQL 种子
+ * （012 基础 + 019 admin/contract_manager 补充 + 021 合同 + 045 绩效 + 046 维护写入）。
+ * 改权限时两边都要改，否则这份文档会骗人。历次教训：
+ *  - contract_manager 曾经在这里（以及 019）挂了一整组 operation.cost.*，
+ *    但它的数据范围是 contract，而成本/完工/经营分析对 contract scope 一律 403，
+ *    结果就是「入口看得见、点进去必 403」的死入口。已由 019 修订 + 047 回收修复。
+ *  - city_user 曾经漏了 performance.overview.read/export，与 045 不一致。
+ */
 export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   admin: [
     BizPermissionCode.PORTAL_ENGINEERING_ENTER,
@@ -113,6 +124,9 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
     BizPermissionCode.MAINTENANCE_ASSET_ENTER,
     BizPermissionCode.MAINTENANCE_DATA_WRITE,
+    BizPermissionCode.MAINTENANCE_SENSITIVE_READ,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_READ,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
     BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_IMPORT_READ,
@@ -182,13 +196,6 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.OPERATION_ORDER_BATCH_VOID,
     BizPermissionCode.OPERATION_ORDER_BATCH_RESTORE,
     BizPermissionCode.OPERATION_ORDER_EXPORT,
-    BizPermissionCode.OPERATION_COST_READ,
-    BizPermissionCode.OPERATION_COST_CREATE,
-    BizPermissionCode.OPERATION_COST_SUBMIT,
-    BizPermissionCode.OPERATION_COST_APPROVE,
-    BizPermissionCode.OPERATION_COST_REJECT,
-    BizPermissionCode.OPERATION_COST_VOID,
-    BizPermissionCode.OPERATION_COST_EXPORT,
     BizPermissionCode.OPERATION_MESSAGE_READ,
   ],
   city_user: [
@@ -198,6 +205,8 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
     BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
     BizPermissionCode.MAINTENANCE_ASSET_ENTER,
     BizPermissionCode.MAINTENANCE_DATA_WRITE,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_READ,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
     BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
     BizPermissionCode.ASSESSMENT_ENTRY_READ,

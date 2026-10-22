@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Button, Card, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
@@ -5,7 +6,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { DownloadOutlined } from '@ant-design/icons';
 import { exportPageRows } from '@/utils/page-export-core';
 import {
-  bizCostCategories, bizCostList, bizCostReturnMonthly, bizCostSaveMonthly, bizMe,
+  bizCostCategories, bizCostList, bizCostReturnMonthly, bizCostSaveMonthly, bizCostWithdraw, bizMe,
 } from '@/api/biz.api';
 import { useBizAnalysisOptions } from '@/components/biz/BizAnalysisOptionsContext';
 
@@ -52,8 +53,11 @@ export default function BizCosts() {
   // 年度 / 省份 / 地市复用全局共享缓存（概览、趋势、地市对比、超额共用），本页不再单独请求
   const { years: optionYears, provinces, cities } = useBizAnalysisOptions();
   const [items, setItems] = useState<CostItem[]>([]);
+  const [itemsTotal, setItemsTotal] = useState(0);
   const [categories, setCategories] = useState<Array<{ code: string; name: string }>>(categoriesCache ?? []);
   const [roleCode, setRoleCode] = useState('');
+  const [userId, setUserId] = useState('');
+  const [isSuper, setIsSuper] = useState(false);
   const [permissions, setPermissions] = useState<string[]>([]);
   const [boundCityId, setBoundCityId] = useState<string | null>(null);
   const [allowedCityIds, setAllowedCityIds] = useState<string[]>([]);
@@ -79,7 +83,7 @@ export default function BizCosts() {
   const [returning, setReturning] = useState(false);
   const isCityUser = roleCode === 'city_user';
   const isMultiCity = isCityUser && allowedCityIds.length > 1;
-  const canReturn = !isCityUser && (roleCode === 'super_admin' || permissions.includes('operation.cost.reject'));
+  const canReturn = !isCityUser && (roleCode === 'super_admin' || permissions.includes(BizPermissionCode.OPERATION_COST_REJECT));
 
   const loadItems = useCallback(async () => {
     if (!roleCode) return;
@@ -89,6 +93,7 @@ export default function BizCosts() {
       const result = await bizCostList({ year: filterYear, ...(isCityUser && !isMultiCity && boundCityId ? { cityId: boundCityId } : {}) });
       if (seq !== itemsSeqRef.current) return; // 已过期响应，直接丢弃，避免旧结果覆盖新筛选
       setItems(result.items.filter((item) => (!filterMonths.length || filterMonths.includes(String(item.businessMonth).slice(5, 7))) && (!filterCities.length || filterCities.includes(String(item.cityId))) && (!filterCategories.length || filterCategories.includes(String(item.categoryCode))) && (!filterProvinces.length || filterProvinces.includes(String(cities.find((city) => city.id === String(item.cityId))?.provinceId ?? '')))));
+      setItemsTotal(result.total);
       setError(null);
     } catch (error) {
       if (seq !== itemsSeqRef.current) return;
@@ -121,6 +126,8 @@ export default function BizCosts() {
         if (!active) return;
         setRoleCode(me.roleCode);
         setPermissions(me.permissions);
+        setUserId(me.id);
+        setIsSuper(me.roleCode === 'super_admin');
         setBoundCityId(me.cityId);
         setCategories(list);
         if (me.roleCode === 'city_user') {
@@ -188,10 +195,26 @@ export default function BizCosts() {
     if (!editCity) { message.warning('请选择填报地市'); return; }
     setSaving(true);
     try {
-      await bizCostSaveMonthly({ cityId: editCity, businessMonth: editMonth, submit, entries: editRows.map((row) => ({ categoryCode: row.categoryCode, amountFen: Math.round(Number(row.amountYuan ?? 0) * 100), description: row.description })) });
-      message.success(submit ? '成本已提交并立即生效' : '成本草稿已保存');
+      const result = await bizCostSaveMonthly({ cityId: editCity, businessMonth: editMonth, submit, entries: editRows.map((row) => ({ categoryCode: row.categoryCode, amountFen: Math.round(Number(row.amountYuan ?? 0) * 100), description: row.description })) });
+      // 后端现在会明确告知哪些分类没保存（例如已有生效中/审核中/已作废记录），不再静默丢弃
+      if (result.skipped?.length) {
+        const names = result.skipped.map((item) => item.categoryCode).join('、');
+        message.warning(`已保存 ${result.items.length} 条；${result.skipped.length} 条未保存（${names}）：已有不可覆盖的记录`);
+      } else {
+        message.success(submit ? '成本已提交并立即生效' : '成本草稿已保存');
+      }
       await Promise.all([loadItems(), loadEditRows()]);
     } catch (error) { message.error(errorText(error)); } finally { setSaving(false); }
+  };
+
+  /** 撤回已生效/已提交记录：仅提交人本人或超管（后端同样校验，这里只是少弹一次无谓的请求） */
+  const withdrawItem = async (id: string, submittedBy: unknown) => {
+    if (!isSuper && String(submittedBy ?? '') !== userId) { message.warning('仅提交人可撤回'); return; }
+    try {
+      await bizCostWithdraw(id);
+      message.success('已撤回为草稿，可修改后重新提交');
+      await Promise.all([loadItems(), loadEditRows()]);
+    } catch (error) { message.error(errorText(error)); }
   };
   const returnMonth = (row: MatrixRow, month: string) => {
     setReturnTarget({ cityId: row.cityId, month });
@@ -212,7 +235,7 @@ export default function BizCosts() {
   const columns = [
     ...(!isCityUser || isMultiCity ? [{ title: '省份', key: 'provinceName', width: 110, render: (_: unknown, row: MatrixRow) => provinces.find((province) => province.id === cities.find((city) => city.id === row.cityId)?.provinceId)?.name ?? '-' }, { title: '地市', dataIndex: 'cityName', key: 'cityName', width: 110 }] : []),
     { title: '成本类别', dataIndex: 'categoryName', key: 'categoryName', width: 130 },
-    ...visibleMonths.map((month) => ({ title: `${Number(month)}月`, key: month, width: 130, render: (_: unknown, row: MatrixRow) => { const item = row.items[month]; if (!item) return <Text type="secondary">0.00</Text>; if (row.isSubtotal) { const monthItems = row.monthItems?.[month] ?? []; const hasEffective = monthItems.some((entry) => String(entry.status) === 'approved'); return <Space direction="vertical" size={0}><Text strong>{fenToYuan(item.amountFen)}</Text>{canReturn && hasEffective && <Button type="link" danger size="small" onClick={() => void returnMonth(row, month)}>整月退回</Button>}</Space>; } return <Space direction="vertical" size={0}><Text>{fenToYuan(item.amountFen)}</Text>{statusTag(item.status)}</Space>; } })),
+    ...visibleMonths.map((month) => ({ title: `${Number(month)}月`, key: month, width: 150, render: (_: unknown, row: MatrixRow) => { const item = row.items[month]; if (!item) return <Text type="secondary">0.00</Text>; if (row.isSubtotal) { const monthItems = row.monthItems?.[month] ?? []; const hasEffective = monthItems.some((entry) => String(entry.status) === 'approved'); return <Space direction="vertical" size={0}><Text strong>{fenToYuan(item.amountFen)}</Text>{canReturn && hasEffective && <Button type="link" danger size="small" onClick={() => void returnMonth(row, month)}>整月退回</Button>}</Space>; } const canWithdraw = String(item.status) === 'approved' && (isSuper || String(item.submittedBy ?? '') === userId); return <Space direction="vertical" size={0}><Text>{fenToYuan(item.amountFen)}</Text><Space size={4}>{statusTag(item.status)}{canWithdraw && <Button type="link" size="small" danger onClick={() => void withdrawItem(String(item.id), item.submittedBy)}>撤回</Button>}</Space></Space>; } })),
   ];
   const editColumns = [
     { title: '成本类别', dataIndex: 'categoryName', key: 'categoryName', width: 150 },
@@ -232,6 +255,7 @@ export default function BizCosts() {
       <Select mode="multiple" maxTagCount="responsive" allowClear placeholder="可多选成本类别" value={filterCategories} onChange={setFilterCategories} options={(categories.length ? categories : FALLBACK_CATEGORIES.map(([code, name]) => ({ code, name }))).map((category) => ({ value: category.code, label: category.name }))} style={{ width: 220 }} />
     </Space></Card>
     {error && <Alert style={{ marginBottom: 16 }} type="error" showIcon message={error} />}
+    {itemsTotal > items.length && <Alert style={{ marginBottom: 16 }} type="warning" showIcon message={`当前条件命中 ${itemsTotal} 条，页面仅展示前 ${items.length} 条；请补充年份、月份或地市条件缩小范围`} />}
     <Card size="small" title={`${filterYear} 年地市成本汇总`} loading={loading}><Table size="small" bordered scroll={{ x: 'max-content' }} rowKey="key" dataSource={citySummaries} pagination={{ pageSize: 50 }} locale={{ emptyText: '暂无已生效成本' }} columns={[{ title: '省份', dataIndex: 'provinceName', fixed: 'left' }, { title: '地市', dataIndex: 'cityName', fixed: 'left', render: (value: string, row: CitySummaryRow) => <Button type="link" size="small" onClick={() => { setFilterCities([row.cityId]); setEditCity(row.cityId); }}>{value}</Button> }, ...[['reimbursement', '报销'], ['rent', '房租'], ['labor', '人工成本'], ['utilities', '水电费'], ['fuel', '油补'], ['entertainment', '招待费']].map(([code, title]) => ({ title, key: code, render: (_: unknown, row: CitySummaryRow) => fenToYuan(row.amounts[code] ?? 0) }))]} /></Card>
     <Card size="small" title={`${filterYear} 年成本明细`} loading={loading} style={{ marginTop: 16 }}><Table size="small" bordered scroll={{ x: 900 }} rowKey="key" columns={columns} dataSource={matrixRows} pagination={{ pageSize: 50 }} locale={{ emptyText: '暂无成本数据' }} /></Card>
     <Card size="small" title="成本填报" style={{ marginTop: 16 }} extra={<Space wrap>{!isCityUser && <><Select allowClear placeholder="选择省份" value={editProvince} onChange={(value) => { setEditProvince(value); setEditCity(undefined); }} options={provinces.map((province) => ({ value: province.id, label: province.name }))} style={{ width: 150 }} /><Select allowClear placeholder="选择地市" value={editCity} onChange={setEditCity} options={cities.filter((city) => !editProvince || city.provinceId === editProvince).map((city) => ({ value: city.id, label: city.name }))} style={{ width: 150 }} /></>}{isMultiCity && <Select allowClear placeholder="选择地市" value={editCity} onChange={setEditCity} options={allowedCityOptions} style={{ width: 150 }} />}<Input type="month" value={editMonth} onChange={(event) => setEditMonth(event.target.value)} style={{ width: 150 }} /></Space>}>

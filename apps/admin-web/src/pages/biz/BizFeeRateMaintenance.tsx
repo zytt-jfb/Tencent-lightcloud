@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import {
   type CSSProperties, useCallback, useEffect, useMemo, useState,
 } from 'react';
@@ -99,9 +100,9 @@ export default function BizFeeRateMaintenance() {
   const [fillValue, setFillValue] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  const canRead = useBizPermission('operation.contract.read');
-  const canWrite = useBizPermission('operation.contract.rate');
-  const canExport = useBizPermission('operation.contract.export');
+  const canRead = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_READ);
+  const canWrite = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_RATE);
+  const canExport = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_EXPORT);
 
   const query = useMemo(() => ({
     keyword: keyword.trim() || undefined,

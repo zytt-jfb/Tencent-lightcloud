@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -7,7 +8,7 @@ import { exportPageRows } from '@/utils/page-export-core';
 const { Title, Text } = Typography;
 type Province = { id: string; code: string; name: string }; type City = { id: string; code: string; name: string; provinceId: string; unitType?: 'city' | 'province_branch' };
 export default function BizRegionSettings() {
-  const canManage = useBizPermission('operation.region.manage'); const [provinces, setProvinces] = useState<Province[]>([]); const [cities, setCities] = useState<City[]>([]); const [loading, setLoading] = useState(false); const [provinceId, setProvinceId] = useState<string>(); const [provinceModal, setProvinceModal] = useState<{ item?: Province } | null>(null); const [cityModal, setCityModal] = useState<{ item?: City } | null>(null); const [provinceForm] = Form.useForm(); const [cityForm] = Form.useForm();
+  const canManage = useBizPermission(BizPermissionCode.OPERATION_REGION_MANAGE); const [provinces, setProvinces] = useState<Province[]>([]); const [cities, setCities] = useState<City[]>([]); const [loading, setLoading] = useState(false); const [provinceId, setProvinceId] = useState<string>(); const [provinceModal, setProvinceModal] = useState<{ item?: Province } | null>(null); const [cityModal, setCityModal] = useState<{ item?: City } | null>(null); const [provinceForm] = Form.useForm(); const [cityForm] = Form.useForm();
   const load = useCallback(async () => { setLoading(true); try { const [provinceResult, cityResult] = await Promise.all([bizAdminProvinces(), bizAdminCities()]); setProvinces(provinceResult.items); setCities(cityResult.items); } catch { message.error('省市数据加载失败'); } finally { setLoading(false); } }, []);
   useEffect(() => { void load(); }, [load]);
   const saveProvince = async () => { const value = await provinceForm.validateFields() as { code: string; name: string }; try { if (provinceModal?.item) await bizAdminUpdateProvince(provinceModal.item.id, value); else await bizAdminCreateProvince(value); message.success('省份已保存'); setProvinceModal(null); provinceForm.resetFields(); await load(); } catch (error: unknown) { message.error((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? '省份保存失败'); } };

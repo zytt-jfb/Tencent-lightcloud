@@ -5,6 +5,7 @@ import { MaintenancePersonnelEntity } from './personnel/personnel.entity';
 import { MaintenanceVehicleEntity } from './vehicles/vehicle.entity';
 import { MaintenanceGeneratorEntity } from './generators/generator.entity';
 import { MaintenanceScopeService } from './maintenance-scope.service';
+import { cityAliases } from '../common/org-name';
 import type { BizAuthContext } from '../rbac/rbac.service';
 
 /**
@@ -150,6 +151,13 @@ export interface MaintenanceOverviewResult {
   byKind: Array<{ kind: AssetKind; category: string; expired: number; dueSoon: number; anomaly: number; total: number }>;
   reminders: MaintenanceReminder[];
   organizations: MaintenanceOrganizationRow[];
+  /**
+   * 数据质量告警：org_city 匹配不上任何地市字典（含「东营市 / 东营」别名）的取值。
+   * 这类记录对所有地市账号都不可见（范围过滤按中文名匹配）且不会报错，
+   * 表现出来就是「数据莫名少了一批」。必须让人看见，而不是静默丢失。
+   * 只对 allowAll（超管）账号统计：地市账号本来就看不到这些行，告警对它们没有意义。
+   */
+  unrecognizedCities: Array<{ city: string; count: number }>;
 }
 
 const DAY_MS = 86_400_000;
@@ -347,9 +355,10 @@ export class MaintenanceOverviewService {
     const kinds: AssetKind[] = ['personnel', 'vehicles', 'generators'];
 
     // 6 个查询并发：每类资产 1 个组织汇总 + 1 个到期候选
-    const [groups, candidates] = await Promise.all([
+    const [groups, candidates, unrecognized] = await Promise.all([
       Promise.all(kinds.map((kind) => this.groupByOrg(kind, auth))),
       Promise.all(kinds.map((kind) => this.expiryRows(kind, auth))),
+      this.unrecognizedCities(auth),
     ]);
 
     const counts = { personnel: 0, vehicles: 0, generators: 0, expired: 0, dueSoon: 0, pending: 0, anomaly: 0 };
@@ -424,7 +433,43 @@ export class MaintenanceOverviewService {
       byKind,
       reminders,
       organizations: [...organizationMap.values()].sort((a, b) => a.region.localeCompare(b.region, 'zh-CN')),
+      unrecognizedCities: unrecognized,
     };
+  }
+
+  /**
+   * 识别匹配不上地市字典的 org_city 取值（数据质量告警）。
+   * 为什么必须报出来：维护表按中文名做范围过滤，字典里没有的取值（例如「测试地市」）
+   * 对所有地市账号都不可见、也不会报错，表现出来就是「数据少了一批」且查不到原因。
+   * 只查 DISTINCT + COUNT，行数 = 不同地市取值数，不是记录数。
+   */
+  private async unrecognizedCities(auth: BizAuthContext): Promise<Array<{ city: string; count: number }>> {
+    const scope = await this.scope.resolve(auth);
+    if (!scope.allowAll) return []; // 地市账号看不到这些行，告警对它们没有意义
+    const known = await this.scope.allCityNameAliases();
+    const groups = await Promise.all((['personnel', 'vehicles', 'generators'] as AssetKind[]).map((kind) =>
+      this.repoOf(kind).createQueryBuilder('t')
+        .select('t.orgCity', 'city')
+        .addSelect('COUNT(*)', 'count')
+        .where('t.deletedAt IS NULL')
+        .andWhere("NULLIF(TRIM(t.orgCity), '') IS NOT NULL")
+        .groupBy('t.orgCity')
+        .getRawMany<{ city: string; count: string | number }>(),
+    ));
+    const merged = new Map<string, number>();
+    for (const group of groups) {
+      for (const row of group) {
+        const city = String(row.city ?? '').trim();
+        if (!city) continue;
+        merged.set(city, (merged.get(city) ?? 0) + (Number(row.count) || 0));
+      }
+    }
+    // 与 assertWritable 同一套匹配规则：行地名或其任一枚别名落在字典里就算认识
+    return [...merged.entries()]
+      .filter(([city]) => !cityAliases(city).some((alias) => known.has(alias)))
+      .map(([city, count]) => ({ city, count }))
+      .sort((left, right) => right.count - left.count)
+      .slice(0, 20);
   }
 
   /**

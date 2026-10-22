@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { BizPermissionCodeValue } from '@biz-reporting/shared-types';
 import { bizMe } from '@/api/biz.api';
 import { getBizToken } from '@/utils/biz-auth';
 
@@ -33,13 +34,20 @@ export async function loadBizPermissions(force = false): Promise<{ isSuper: bool
     };
     cacheLoadedAt = Date.now();
   } catch {
-    cachedPermissions = { isSuper: false, codes: new Set(), tokenFingerprint: fingerprint };
+    // 失败绝不写入缓存：一次偶发的 bizMe 500 会把超管瞬间打成「无权限」并缓存 60 秒，
+    // 期间所有入口消失、刷新也救不回来。有同指纹旧缓存就继续用旧的，否则返回空集合但不落缓存。
+    if (cachedPermissions && cachedPermissions.tokenFingerprint === fingerprint) return cachedPermissions;
+    return { isSuper: false, codes: new Set<string>() };
   }
   return cachedPermissions;
 }
 
-/** 组件内权限判断（前端展示控制；后端守卫为最终授权边界）。返回 null 表示加载中。 */
-export function useBizPermission(code: string): boolean | null {
+/**
+ * 组件内权限判断（前端展示控制；后端守卫为最终授权边界）。返回 null 表示加载中。
+ * code 收窄成 BizPermissionCodeValue：写错权限码会在编译期报错，
+ * 而不是线上变成「入口不显示」这种无声故障。
+ */
+export function useBizPermission(code: BizPermissionCodeValue): boolean | null {
   const [allowed, setAllowed] = useState<boolean | null>(null);
   useEffect(() => {
     void loadBizPermissions().then((p) => setAllowed(p.isSuper || p.codes.has(code)));

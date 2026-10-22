@@ -27,8 +27,14 @@ export class BizCostController {
     @Query('businessMonth') businessMonth?: string,
     @Query('year') year?: string,
     @Query('categoryCode') categoryCode?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ) {
-    return { items: await this.service.list(auth, { cityId, status, businessMonth, year, categoryCode }) };
+    return this.service.list(auth, {
+      cityId, status, businessMonth, year, categoryCode,
+      page: page == null || page === '' ? undefined : Number(page),
+      pageSize: pageSize == null || pageSize === '' ? undefined : Number(pageSize),
+    });
   }
 
   @Get('categories/list')

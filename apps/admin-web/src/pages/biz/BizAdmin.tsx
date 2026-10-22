@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Spin } from 'antd';
 import { useBizPermission } from '@/utils/biz-permission';
@@ -52,17 +53,24 @@ function buildPermissionGroups(rows: Array<Record<string, unknown>>): Permission
   const groups = new Map<string, PermissionItem[]>();
   for (const row of rows) {
     const code = String(row.code ?? '');
-    if (['maintenance.asset.enter', 'maintenance.personnel.enter'].includes(code)) continue;
+    // 注意：不再跳过 maintenance.asset.enter / maintenance.personnel.enter。
+    // 原先这两个入口权限被硬编码排除，导致无法给单个账号开维护入口例外，
+    // 临时授权只能改角色默认权限（影响同角色所有人）。现在它们归入「维护管理」分组，
+    // 与其它维护权限一样可按账号配置。
     const match = /^(?:operation\.)?([^.]+)\./.exec(code);
     if (!match) continue;
-    const entryGroups: Record<string, string> = { 'portal.engineering.enter': 'engineeringEntry', 'portal.maintenance.enter': 'maintenanceEntry', 'maintenance.operation.enter': 'operationEntry' };
+    const entryGroups: Record<string, string> = {
+      [BizPermissionCode.PORTAL_ENGINEERING_ENTER]: 'engineeringEntry',
+      [BizPermissionCode.PORTAL_MAINTENANCE_ENTER]: 'maintenanceEntry',
+      [BizPermissionCode.MAINTENANCE_OPERATION_ENTER]: 'operationEntry',
+    };
     const operationGroups: Record<string, string> = { analysis: 'operationAnalysis', contract: 'operationContract', order: 'operationOrder', completion: 'operationCompletion', cost: 'operationCost', home: 'operationHome', message: 'systemMessage', announcement: 'systemAnnouncement', user: 'systemUser', role: 'systemUser', module: 'systemUser', settings: 'systemSettings', region: 'systemRegion' };
     const key = entryGroups[code] ?? operationGroups[match[1]] ?? match[1];
     const list = groups.get(key) ?? [];
     list.push({ code, name: String(row.name ?? code), action: String(row.action ?? '') });
     groups.set(key, list);
   }
-  groups.set('systemEntry', [{ code: 'portal.system.enter', name: '系统设置入口', action: 'enter' }]);
+  groups.set('systemEntry', [{ code: BizPermissionCode.PORTAL_SYSTEM_ENTER, name: '系统设置入口', action: 'enter' }]);
   const portalOrder = ['engineeringEntry', 'maintenanceEntry', 'operationEntry', 'systemEntry'];
   return Array.from(groups.entries()).map(([key, permissions]) => ({ key, label: MODULE_LABEL[key] ?? key, description: MODULE_DESCRIPTION[key] ?? '该业务模块的访问和操作权限', permissions })).sort((a, b) => {
     const ai = portalOrder.indexOf(a.key); const bi = portalOrder.indexOf(b.key);
@@ -72,7 +80,7 @@ function buildPermissionGroups(rows: Array<Record<string, unknown>>): Permission
 }
 
 export default function BizAdmin() {
-  const canManage = useBizPermission('operation.user.manage');
+  const canManage = useBizPermission(BizPermissionCode.OPERATION_USER_MANAGE);
   const [users, setUsers] = useState<Array<Record<string, unknown>>>([]);
   const [roles, setRoles] = useState<Array<{ code: string; name: string }>>([]);
   const [cities, setCities] = useState<Array<{ id: string; name: string; provinceId: string }>>([]);
@@ -95,6 +103,7 @@ export default function BizAdmin() {
   const [scopeUserId, setScopeUserId] = useState<string | null>(null);
   const [scopeType, setScopeType] = useState<'all' | 'province' | 'city' | 'contract'>('all');
   const [scopeTargets, setScopeTargets] = useState<string[]>([]);
+  const [scopeRoles, setScopeRoles] = useState<string[]>([]);
   const [scopeSaving, setScopeSaving] = useState(false);
   const [contractScopeText, setContractScopeText] = useState('');
   const permissionGroups = buildPermissionGroups(permissionRows);
@@ -190,6 +199,8 @@ export default function BizAdmin() {
     setScopeType(grant?.scopeType ?? 'all');
     setScopeTargets(access.grants.filter((item) => item.scopeType === grant?.scopeType && item.targetId).map((item) => String(item.targetId)));
     setContractScopeText(access.grants.filter((item) => item.scopeType === 'contract' && item.targetId).map((item) => String(item.targetId)).join('\n'));
+    // 角色也在这里配置：建号之后仍可改角色（原先只能建号时选一次），且支持多角色
+    setScopeRoles(access.roles.map((item) => String(item.roleCode)));
     setScopeOpen(true);
   };
 
@@ -201,9 +212,10 @@ export default function BizAdmin() {
         ? contractScopeText.split(/[\s,，\n]+/).map((item) => item.trim()).filter(Boolean)
         : scopeTargets;
       const grants = scopeType === 'all' ? [{ scopeType: 'all' as const, targetId: null }] : ids.map((targetId) => ({ scopeType, targetId }));
-      await bizAdminSetUserAccess(scopeUserId, [String(users.find((row) => String(row.id) === scopeUserId)?.roleCode ?? 'admin')], grants);
-      message.success('数据范围已保存，下次请求生效');
+      await bizAdminSetUserAccess(scopeUserId, scopeRoles, grants);
+      message.success('角色与数据范围已保存，下次请求生效');
       setScopeOpen(false);
+      void load();
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
       message.error(detail ?? '数据范围保存失败');
@@ -258,7 +270,7 @@ export default function BizAdmin() {
       render: (_: unknown, row: Record<string, unknown>) => (
         <Space wrap>
           <Button size="small" onClick={() => onViewPerm(String(row.id))}>权限</Button>
-          <Button size="small" onClick={() => { void onViewScope(String(row.id)); }}>范围</Button>
+          <Button size="small" onClick={() => { void onViewScope(String(row.id)); }}>角色/范围</Button>
           <Button size="small" danger={row.status === 'enabled'} onClick={() => onToggle(String(row.id), String(row.status))}>
             {row.status === 'enabled' ? '停用' : '启用'}
           </Button>
@@ -308,7 +320,7 @@ export default function BizAdmin() {
         cancelText="取消"
         onCancel={() => { setResetOpen(false); setResetUserId(null); }}
         onOk={() => { void resetForm.validateFields().then(onSubmitResetPassword).catch(() => undefined); }}
-        destroyOnClose
+        destroyOnHidden
       >
         <p>重置后旧会话将立即失效。新密码至少 6 位，请在下方输入。</p>
         <Form form={resetForm} layout="vertical" onFinish={onSubmitResetPassword}>
@@ -351,14 +363,21 @@ export default function BizAdmin() {
         )}
       </Drawer>
 
-      <Drawer title="数据范围" open={scopeOpen} onClose={() => setScopeOpen(false)} width={520} extra={<Button type="primary" loading={scopeSaving} onClick={() => { void onSaveScope(); }}>保存范围</Button>}>
-        <Alert type="info" showIcon message="范围是授权并集，请只选择该账号实际负责的对象" style={{ marginBottom: 16 }} />
-        <Form layout="vertical">
-          <Form.Item label="范围类型"><Select value={scopeType} onChange={(value) => { setScopeType(value); setScopeTargets([]); }} options={[{ value: 'all', label: '全部省份和地市' }, { value: 'province', label: '指定省份' }, { value: 'city', label: '指定地市' }, { value: 'contract', label: '指定合同' }]} /></Form.Item>
-          {scopeType === 'province' && <Form.Item label="省份"><Select mode="multiple" value={scopeTargets} onChange={setScopeTargets} options={provinces.map((item) => ({ value: item.id, label: item.name }))} /></Form.Item>}
-          {scopeType === 'city' && <Form.Item label="经营单位"><Select mode="multiple" value={scopeTargets} onChange={setScopeTargets} options={cities.map((item) => ({ value: item.id, label: item.name }))} /></Form.Item>}
-          {scopeType === 'contract' && <Form.Item label="合同 ID" extra="每行一个合同 ID"><Input.TextArea rows={8} value={contractScopeText} onChange={(event) => setContractScopeText(event.target.value)} placeholder="请输入合同 ID" /></Form.Item>}
-        </Form>
+      <Drawer title="角色与数据范围" open={scopeOpen} onClose={() => setScopeOpen(false)} width={520} extra={<Button type="primary" loading={scopeSaving} onClick={() => { void onSaveScope(); }}>保存</Button>}>
+        {scopeRoles.includes('super_admin')
+          ? <Result status="info" title="超级管理员账号" subTitle="角色与数据范围由系统内置，不可修改。" />
+          : <>
+            <Alert type="info" showIcon message="范围是授权并集，请只选择该账号实际负责的对象；角色可多选，保存后下次请求生效" style={{ marginBottom: 16 }} />
+            <Form layout="vertical">
+              <Form.Item label="角色" extra="可多选；第一个为主角色（决定账号列表里显示的角色）。原先建号后不能改角色，且保存范围会把多角色覆盖成单角色，现已修复。">
+                <Select mode="multiple" value={scopeRoles} onChange={setScopeRoles} options={roles.filter((item) => item.code !== 'super_admin').map((item) => ({ value: item.code, label: item.name }))} />
+              </Form.Item>
+              <Form.Item label="范围类型"><Select value={scopeType} onChange={(value) => { setScopeType(value); setScopeTargets([]); }} options={[{ value: 'all', label: '全部省份和地市' }, { value: 'province', label: '指定省份' }, { value: 'city', label: '指定地市' }, { value: 'contract', label: '指定合同' }]} /></Form.Item>
+              {scopeType === 'province' && <Form.Item label="省份"><Select mode="multiple" value={scopeTargets} onChange={setScopeTargets} options={provinces.map((item) => ({ value: item.id, label: item.name }))} /></Form.Item>}
+              {scopeType === 'city' && <Form.Item label="经营单位"><Select mode="multiple" value={scopeTargets} onChange={setScopeTargets} options={cities.map((item) => ({ value: item.id, label: item.name }))} /></Form.Item>}
+              {scopeType === 'contract' && <Form.Item label="合同 ID" extra="每行一个合同 ID"><Input.TextArea rows={8} value={contractScopeText} onChange={(event) => setContractScopeText(event.target.value)} placeholder="请输入合同 ID" /></Form.Item>}
+            </Form>
+          </>}
       </Drawer>
     </div>
   );

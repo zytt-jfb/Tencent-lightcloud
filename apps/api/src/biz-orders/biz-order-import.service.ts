@@ -1045,23 +1045,45 @@ export class BizOrderImportService {
 
   /** 订单行列表（敏感列脱敏：无 SENSITIVE_ORDER_PERMISSION 时遮罩） */
   async listRows(auth: BizAuthContext, filter: { batchId?: string; cityId?: string; overrun?: 'city' | 'contract' | 'any'; validationStatus?: 'valid' | 'needs_review'; page?: number; pageSize?: number }, sensitive: boolean) {
+    const pageSize = Math.min(500, Math.max(1, Math.trunc(filter.pageSize ?? 500)));
+    const page = Math.max(1, Math.trunc(filter.page ?? 1));
+    const emptyPage = { items: [], total: 0, page, pageSize };
     const cityIds = await this.visibleCityIds(auth);
     const qb = this.rowRepo.createQueryBuilder('r');
     if (cityIds) {
-      if (cityIds.length === 0) return { items: [], total: 0, page: 1, pageSize: 500 };
+      if (cityIds.length === 0) return emptyPage;
       if (filter.cityId && !cityIds.includes(filter.cityId)) throw new ForbiddenException('数据范围不足');
       qb.andWhere('r.city_id IN (:...visibleCityIds)', { visibleCityIds: cityIds });
     }
     if (filter.batchId) qb.andWhere('r.batchId = :batchId', { batchId: filter.batchId });
     else qb.andWhere('r.isCurrent = 1');
     if (filter.cityId) qb.andWhere('r.cityId = :cityId', { cityId: filter.cityId });
-    if (filter.overrun === 'city') qb.andWhere('r.cityOverrunFlag = 1');
-    if (filter.overrun === 'contract') qb.andWhere('r.contractOverrunFlag = 1');
-    if (filter.overrun === 'any') qb.andWhere('(r.cityOverrunFlag = 1 OR r.contractOverrunFlag = 1)');
+    if (filter.overrun) {
+      // 超额改为实时累计判断（与 /biz/analysis/overrun-list 完全同口径）：
+      // biz_order_rows.city_overrun_flag / contract_overrun_flag 只有创建时写 false，
+      // 全项目没有任何代码把它们置 true，直接按列过滤会永远查不出数据。
+      const overrun = await this.aggregates.overrunDimensions(auth);
+      const conditions: string[] = [];
+      const params: Record<string, unknown> = {};
+      if (filter.overrun === 'contract' || filter.overrun === 'any') {
+        if (overrun.contractIds.size === 0) return emptyPage;
+        conditions.push('r.contract_id IN (:...overrunContractIds)');
+        params.overrunContractIds = [...overrun.contractIds];
+      }
+      if (filter.overrun === 'city' || filter.overrun === 'any') {
+        if (overrun.cityKeys.size === 0) return emptyPage;
+        const ors = [...overrun.cityKeys].map((key, index) => {
+          const [contractId, cityId] = key.split('|');
+          params[`overrunContractId_${index}`] = contractId;
+          params[`overrunCityId_${index}`] = cityId;
+          return `(r.contract_id = :overrunContractId_${index} AND r.city_id = :overrunCityId_${index})`;
+        });
+        conditions.push(`(${ors.join(' OR ')})`);
+      }
+      qb.andWhere(`(${conditions.join(' OR ')})`, params);
+    }
     if (filter.validationStatus) qb.andWhere('r.validationStatus = :validationStatus', { validationStatus: filter.validationStatus });
     const total = await qb.getCount();
-    const pageSize = Math.min(500, Math.max(1, Math.trunc(filter.pageSize ?? 500)));
-    const page = Math.max(1, Math.trunc(filter.page ?? 1));
     const rows = await qb.orderBy('r.sourceRowNo', 'ASC').skip((page - 1) * pageSize).take(pageSize).getMany();
     const cityNames = new Map((await this.cityRepo.find()).map((city) => [city.id, city.name]));
     const contractIds = [...new Set(rows.map((row) => row.contractId).filter((id): id is string => Boolean(id)))];

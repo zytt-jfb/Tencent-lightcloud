@@ -55,14 +55,33 @@ export class BizAggregateController {
 
   @Get('analysis/trend')
   @BizPermissions(BizPermissionCode.OPERATION_ANALYSIS_READ)
-  async trend(@BizAuthUser() auth: BizAuthContext, @Query('limit') limit?: string, @Query('cityId') cityId?: string, @Query('year') year?: string, @Query('provinceId') provinceId?: string) {
-    return { items: await this.service.trend(auth, Number(limit) || 12, cityId, year, provinceId) };
+  async trend(
+    @BizAuthUser() auth: BizAuthContext,
+    @Query('limit') limit?: string,
+    @Query('cityId') cityId?: string,
+    @Query('year') year?: string,
+    @Query('provinceId') provinceId?: string,
+    @Query('cityIds') cityIds?: string,
+    @Query('provinceIds') provinceIds?: string,
+    @Query('months') months?: string,
+  ) {
+    const toArr = (v?: string) => (v ? String(v).split(',').filter(Boolean) : undefined);
+    return { items: await this.service.trend(auth, Number(limit) || 12, cityId, year, provinceId, toArr(cityIds), toArr(provinceIds), toArr(months)) };
   }
 
   @Get('analysis/by-city')
   @BizPermissions(BizPermissionCode.OPERATION_ANALYSIS_READ)
-  async byCity(@BizAuthUser() auth: BizAuthContext, @Query('year') year?: string, @Query('month') month?: string, @Query('provinceId') provinceId?: string) {
-    return { items: await this.service.byCity(auth, year, month, provinceId) };
+  async byCity(
+    @BizAuthUser() auth: BizAuthContext,
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+    @Query('provinceId') provinceId?: string,
+    @Query('cityIds') cityIds?: string,
+    @Query('provinceIds') provinceIds?: string,
+    @Query('months') months?: string,
+  ) {
+    const toArr = (v?: string) => (v ? String(v).split(',').filter(Boolean) : undefined);
+    return { items: await this.service.byCity(auth, year, month, provinceId, toArr(cityIds), toArr(provinceIds), toArr(months)) };
   }
 
   @Get('analysis/alerts')

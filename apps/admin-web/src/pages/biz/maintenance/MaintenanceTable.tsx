@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -77,8 +78,8 @@ export default function MaintenanceTable({ kind, businessColumns, detailFields, 
   const [activeTab, setActiveTab] = useState<string>();
   const [highlightField, setHighlightField] = useState('');
 
-  const canWrite = useBizPermission('maintenance.data.write');
-  const canDelete = useBizPermission('maintenance.data.delete');
+  const canWrite = useBizPermission(BizPermissionCode.MAINTENANCE_DATA_WRITE);
+  const canDelete = useBizPermission(BizPermissionCode.MAINTENANCE_DATA_DELETE);
 
   useEffect(() => {
     void Promise.all([bizCities(), bizProvinces()])

@@ -72,6 +72,18 @@ export class MaintenanceScopeService {
   }
 
   /**
+   * 全部地市名 + 别名（用于识别「匹配不上字典」的 org_city 取值）。
+   * 维护表按中文名做范围过滤，字典里没有的取值对所有地市账号都不可见且不报错，
+   * 表现出来就是「数据莫名少了一批」。有了这个集合才能把这类值找出来。
+   */
+  async allCityNameAliases(): Promise<Set<string>> {
+    const cities = await this.cityRepo.find({ select: { id: true, name: true } });
+    const names = new Set<string>();
+    for (const city of cities) for (const alias of cityAliases(city.name)) names.add(alias);
+    return names;
+  }
+
+  /**
    * 写操作的范围校验。
    *
    * 权限点（maintenance.data.write）只回答「这个人能不能改维护数据」，

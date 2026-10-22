@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, DatePicker, Descriptions, Drawer, Form, Input, InputNumber, Modal, Progress, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
@@ -36,7 +37,7 @@ export default function BizContractOverview() {
   const [exporting, setExporting] = useState(false);
   const [rateForm] = Form.useForm();
   const [copyForm] = Form.useForm();
-  const canManageRates = useBizPermission('operation.contract.rate');
+  const canManageRates = useBizPermission(BizPermissionCode.OPERATION_CONTRACT_RATE);
 
   const load = useCallback(async () => {
     setLoading(true);

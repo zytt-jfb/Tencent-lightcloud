@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Button, Card, DatePicker, Drawer, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message,
@@ -48,8 +49,8 @@ interface EntryFormValues {
  * 状态：草稿 → 已提交；省管理员可退回/作废，退回后可修改再提交
  */
 export default function AssessmentEntry() {
-  const canReturn = useBizPermission('assessment.entry.return');
-  const canCreate = useBizPermission('assessment.entry.create');
+  const canReturn = useBizPermission(BizPermissionCode.ASSESSMENT_ENTRY_RETURN);
+  const canCreate = useBizPermission(BizPermissionCode.ASSESSMENT_ENTRY_CREATE);
 
   const [rows, setRows] = useState<AssessmentEntryRow[]>([]);
   const [loading, setLoading] = useState(false);

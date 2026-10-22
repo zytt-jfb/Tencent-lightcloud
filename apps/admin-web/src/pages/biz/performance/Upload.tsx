@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Select, Space, Table, Typography, Upload, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
@@ -22,7 +23,7 @@ export default function UploadPage() {
   const [loading, setLoading] = useState(false);
   const [months, setMonths] = useState<number[]>([]);
   const [logs, setLogs] = useState<Record<string, unknown>[]>([]);
-  const canUpload = useBizPermission('performance.upload.create');
+  const canUpload = useBizPermission(BizPermissionCode.PERFORMANCE_UPLOAD_CREATE);
 
   const loadLogs = () => bizOperationLogs({ page: 1, pageSize: 20, targetType: 'performance' })
     .then((result) => setLogs(result.items ?? []))

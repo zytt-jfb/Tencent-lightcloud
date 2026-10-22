@@ -5,7 +5,9 @@ import { BIZ_PERMISSIONS_KEY } from './biz-permissions.decorator';
 import { BizPermissionCodeValue } from '@biz-reporting/shared-types';
 
 /**
- * biz 功能权限守卫：校验 request.bizAuth 是否拥有 @BizPermissions 声明的全部权限码。
+ * biz 功能权限守卫：@BizPermissions 传入多个权限码时是**任一满足**（OR）语义，
+ * 见下面 for 循环「命中一个就 return true」。
+ * 需要「全部满足」的接口请拆成多个 @BizPermissions 或在 service 内逐项 assertPermission。
  * super_admin 由 RbacService.assertPermission 通配。
  */
 @Injectable()

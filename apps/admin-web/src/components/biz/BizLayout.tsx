@@ -1,22 +1,19 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Avatar, Button, Drawer, Dropdown, Form, Input, Layout, Menu, Modal, Result, Space, Spin, Typography, message, type MenuProps } from 'antd';
 import {
-  ApartmentOutlined, BarChartOutlined, ClockCircleOutlined, FileTextOutlined, InboxOutlined, SettingOutlined,
-  BellOutlined, DeleteOutlined, HomeOutlined, KeyOutlined, TeamOutlined, UserOutlined, WalletOutlined, MenuOutlined,
-  SafetyCertificateOutlined,
+  BarChartOutlined, FileTextOutlined, InboxOutlined, HomeOutlined, KeyOutlined, TeamOutlined,
+  UserOutlined, WalletOutlined, MenuOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { bizChangeOwnPassword, bizMe, bizMessageList, type BizSnapshotMetadata } from '@/api/biz.api';
 import BizSnapshotProvider, { useBizSnapshot } from '@/components/biz/BizSnapshotContext';
+import { NAV_PATHS, ROLE_LABEL, parentMenuKeyOfPath, visibleLeaves, type NavGroupCode, type NavLeaf } from '@/components/biz/biz-navigation';
 import { clearBizToken } from '@/utils/biz-auth';
 import { clearBizPermissionCache } from '@/utils/biz-permission';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
-
-const ROLE_LABEL: Record<string, string> = {
-  super_admin: '超级管理员', admin: '省级运营管理员', contract_manager: '合同管理员', city_user: '地市用户',
-};
 
 /** 顶部经营分析快照状态栏：单一"更新数据"入口 + 状态文案（不暴露技术术语/堆栈） */
 function fmtShort(value: string | null | undefined): string {
@@ -69,14 +66,12 @@ function SnapshotStatusBar() {
   );
 }
 
-/** 按权限码过滤菜单（super_admin 通配）；hideForRoles 指定的角色无论如何都不显示该菜单 */
-type PermissionMenuItem = { key: string; label: string; icon?: React.ReactNode; permission?: string; hideForRoles?: string[] };
-
-function filterByPermission(items: PermissionMenuItem[], permissions: Set<string>, isSuper: boolean, roleCode?: string): NonNullable<MenuProps['items']> {
-  return items
-    .filter((i) => !i.permission || isSuper || permissions.has(i.permission))
-    .filter((i) => !i.hideForRoles?.length || !roleCode || !i.hideForRoles.includes(roleCode))
-    .map(({ permission: _permission, hideForRoles: _hideForRoles, ...item }) => item);
+/**
+ * 菜单入口统一从 biz-navigation 取，这里只负责「怎么排」。
+ * 权限过滤（含 superOnly / hideForRoles / 多权限任一满足）在配置文件里，侧栏与工作台共用同一套判定。
+ */
+function toMenuItem(leaf: NavLeaf): { key: string; label: string; icon?: React.ReactNode } {
+  return { key: leaf.key, label: leaf.label, icon: leaf.icon };
 }
 
 /** 新基线统一布局：顶部用户 + 侧边菜单（经营管理六入口 + 系统管理） */
@@ -114,7 +109,7 @@ export default function BizLayout() {
   }, [navigate]);
 
   useEffect(() => {
-    if (!me?.permissions?.includes('operation.message.read') && me?.roleCode !== 'super_admin') return;
+    if (!me?.permissions?.includes(BizPermissionCode.OPERATION_MESSAGE_READ) && me?.roleCode !== 'super_admin') return;
     void bizMessageList().then((result) => setUnreadCount(result.unreadCount)).catch(() => undefined);
   }, [me]);
 
@@ -140,42 +135,23 @@ export default function BizLayout() {
     }
   };
 
-  const systemItems = filterByPermission([
-    { key: '/biz/settings', label: '系统设置', icon: <SettingOutlined />, permission: 'operation.settings.read' },
-    { key: '/biz/admin', label: '权限管理', icon: <ApartmentOutlined />, permission: 'operation.user.manage' },
-    { key: '/biz/region-settings', label: '省市设置', icon: <ApartmentOutlined />, permission: 'operation.region.manage' },
-    { key: '/biz/audit-logs', label: '审计日志', icon: <FileTextOutlined />, permission: 'operation.user.manage' },
-    ...(isSuper ? [{ key: '/biz/data-delete', label: '数据删除', icon: <DeleteOutlined /> }] : []),
-  ], permSet, isSuper, me?.roleCode);
-  const messageItems = filterByPermission([
-    { key: '/biz/messages', label: unreadCount > 0 ? `消息中心 (${unreadCount})` : '消息中心', icon: <BellOutlined />, permission: 'operation.message.read' },
-  ], permSet, isSuper, me?.roleCode);
+  // 当前账号可见的全部入口（权限判定在 biz-navigation.canSeeLeaf，工作台页共用同一函数）
+  const navLeaves = visibleLeaves(permSet, isSuper, me?.roleCode);
+  const leavesIn = (groups: NavGroupCode[]) => navLeaves.filter((leaf) => groups.includes(leaf.group));
 
-  const analysisItems = filterByPermission([
-    { key: '/biz/analysis', label: '经营概览', icon: <BarChartOutlined />, permission: 'operation.analysis.read' },
-    { key: '/biz/analysis/trend', label: '月度趋势', icon: <BarChartOutlined />, permission: 'operation.analysis.read' },
-    { key: '/biz/analysis/cities', label: '地市对比', icon: <ApartmentOutlined />, permission: 'operation.analysis.read' },
-    { key: '/biz/analysis/overruns', label: '超额清单', icon: <WalletOutlined />, permission: 'operation.analysis.read' },
-  ], permSet, isSuper, me?.roleCode);
-  const contractItems = filterByPermission([
-    { key: '/biz/contract-overview', label: '合同概览', icon: <FileTextOutlined />, permission: 'operation.contract.read' },
-    { key: '/biz/operation', label: '合同上传', icon: <FileTextOutlined />, permission: 'operation.contract.read', hideForRoles: ['city_user'] },
-    { key: '/biz/fee-rates', label: '管理费率', icon: <WalletOutlined />, permission: 'operation.contract.read', hideForRoles: ['city_user'] },
-  ], permSet, isSuper, me?.roleCode);
-  const costItems = filterByPermission([
-    { key: '/biz/costs', label: '地市成本', icon: <WalletOutlined />, permission: 'operation.cost.read' },
-  ], permSet, isSuper, me?.roleCode);
-  const completionItems = filterByPermission([
-    { key: '/biz/orders', label: '订单管理', icon: <InboxOutlined />, permission: 'operation.order.upload' },
-    { key: '/biz/offline-completions', label: '线下完工', icon: <TeamOutlined />, permission: 'operation.completion.read' },
-  ], permSet, isSuper, me?.roleCode);
+  const systemItems: NonNullable<MenuProps['items']> = leavesIn(['system']).map(toMenuItem);
+  // 未读数是运行态，配置文件里保持静态 label，这里按需补上数字
+  const messageItems: NonNullable<MenuProps['items']> = leavesIn(['message']).map((leaf) => ({
+    ...toMenuItem(leaf),
+    label: unreadCount > 0 ? `${leaf.label} (${unreadCount})` : leaf.label,
+  }));
+
+  const analysisItems = leavesIn(['analysis']).map(toMenuItem);
+  const contractItems = leavesIn(['contract']).map(toMenuItem);
+  const costItems = leavesIn(['cost']).map(toMenuItem);
+  const completionItems = leavesIn(['completion']).map(toMenuItem);
   // 工程管理：一级抽屉「后评估管理」，下辖概览 / 数据导入 / 线下填报
-  const assessmentItems = filterByPermission([
-    { key: '/biz/engineering/assessment', label: '后评估概览', permission: 'assessment.overview.read' },
-    { key: '/biz/engineering/assessment/detail', label: '明细', permission: 'assessment.overview.read' },
-    { key: '/biz/engineering/assessment/import', label: '数据导入', permission: 'assessment.import.read' },
-    { key: '/biz/engineering/assessment/entry', label: '线下填报', permission: 'assessment.entry.read' },
-  ], permSet, isSuper, me?.roleCode);
+  const assessmentItems = leavesIn(['assessment']).map(toMenuItem);
   const engineeringItems: NonNullable<MenuProps['items']> = assessmentItems.length > 0
     ? [{ key: 'assessment', label: '后评估管理', icon: <SafetyCertificateOutlined />, children: assessmentItems }]
     : [];
@@ -195,45 +171,18 @@ export default function BizLayout() {
   const isSystemModule = ['/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete'].some(path => location.pathname === path || location.pathname.startsWith(`${path}/`));
   const moduleName = isEngineeringModule ? '工程管理' : isMaintenanceModule ? '维护管理' : isSystemModule ? '系统设置' : '经营管理';
   /**
-   * 维护管理侧栏：从写死数组改成按权限码过滤。
-   * 原来的问题是「绩效上传」对所有登录账号可见，但后端只允许超管上传 → 普通账号点进去必然 403。
-   * 现在菜单与接口共用同一套权限点（迁移 045 引入 performance.*）：
-   *   performance.overview.read  → 月度分数 / 绩效总览（admin、city_user 默认有）
-   *   performance.upload.read    → 绩效上传（默认只有超管）
+   * 维护管理侧栏：总览 / 到期台账 / 人员是顶层叶子，车辆油机收进「资产管理」，
+   * 月度分数与绩效上传收进「月度考核」。
+   * 总览与到期台账用「人员进入 或 资产进入」任一放行（后端同口径），否则 contract_manager
+   * 会看到一个点进去就 403 的入口。
    */
-  const maintenanceLeaves = filterByPermission([
-    { key: '/biz/maintenance/personnel', label: '人员管理', icon: <TeamOutlined />, permission: 'maintenance.personnel.enter' },
-    { key: '/biz/maintenance/vehicles', label: '车辆管理', icon: <InboxOutlined />, permission: 'maintenance.asset.enter' },
-    { key: '/biz/maintenance/generators', label: '油机管理', icon: <SettingOutlined />, permission: 'maintenance.asset.enter' },
-  ], permSet, isSuper, me?.roleCode) as Array<{ key: string; label: string; icon?: React.ReactNode }>;
-  const performanceScoreItems = filterByPermission([
-    { key: '/biz/performance/monthly-score', label: '月度分数', permission: 'performance.overview.read' },
-    { key: '/biz/performance/overview', label: '绩效总览', permission: 'performance.overview.read' },
-  ], permSet, isSuper, me?.roleCode);
-  const performanceUploadItems = filterByPermission([
-    { key: '/biz/performance/upload', label: '绩效上传', permission: 'performance.upload.read' },
-  ], permSet, isSuper, me?.roleCode);
-  const personnelLeaf = maintenanceLeaves.filter((item) => item.key === '/biz/maintenance/personnel');
-  const assetLeaves = maintenanceLeaves.filter((item) => item.key !== '/biz/maintenance/personnel');
-  /**
-   * 总览与到期台账横跨三类资产，后端用「人员进入 或 资产进入」任一放行；
-   * 菜单也跟着这两个权限点走，否则 contract_manager 会看到一个点进去就 403 的入口。
-   */
-  const canSeeMaintenanceLedger = isSuper
-    || permSet.has('maintenance.personnel.enter')
-    || permSet.has('maintenance.asset.enter');
-  const performanceLeaves = [...performanceScoreItems, ...performanceUploadItems];
-  const standaloneMaintenanceItems: MenuProps['items'] = [
-    ...(canSeeMaintenanceLedger
-      ? [
-        { key: '/biz/maintenance/overview', label: '数据总览', icon: <BarChartOutlined /> },
-        // 到期台账放在总览下面：总览回答「有多少」，台账回答「是哪几条、点进去改哪里」
-        { key: '/biz/maintenance/expiry', label: '到期台账', icon: <ClockCircleOutlined /> },
-      ]
-      : []),
-    ...personnelLeaf,
-    ...(assetLeaves.length > 0 ? [{ key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: assetLeaves }] : []),
-    ...(performanceLeaves.length > 0 ? [{ key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: performanceLeaves }] : []),
+  const maintenanceCoreItems = leavesIn(['maintenance-core']).map(toMenuItem);
+  const assetMenuItems = leavesIn(['maintenance-assets']).map(toMenuItem);
+  const performanceMenuItems = leavesIn(['performance']).map(toMenuItem);
+  const standaloneMaintenanceItems: NonNullable<MenuProps['items']> = [
+    ...maintenanceCoreItems,
+    ...(assetMenuItems.length > 0 ? [{ key: 'maintenance-assets', label: '资产管理', icon: <InboxOutlined />, children: assetMenuItems }] : []),
+    ...(performanceMenuItems.length > 0 ? [{ key: 'performance', label: '月度考核', icon: <BarChartOutlined />, children: performanceMenuItems }] : []),
   ];
   // 移动端与桌面端保持同一层级，避免两种导航结构产生不同入口。
   const mobileMenuItems: MenuProps['items'] = [
@@ -241,34 +190,11 @@ export default function BizLayout() {
     ...businessItems,
   ];
 
-  // 叶子路由必须优先于父路由匹配；此前 /biz/analysis/trend 会被 /biz/analysis 抢占，
-  // 其他未列出的路由还会错误回退为“合同上传”。
-  const navigationPaths = [
-    '/biz/analysis/overruns', '/biz/analysis/cities', '/biz/analysis/trend', '/biz/analysis',
-    '/biz/contract-overview', '/biz/fee-rates', '/biz/operation', '/biz/offline-completions', '/biz/orders',
-    '/biz/costs', '/biz/messages', '/biz/settings', '/biz/admin', '/biz/region-settings', '/biz/audit-logs', '/biz/data-delete',
-    '/biz/maintenance/overview', '/biz/maintenance/expiry', '/biz/maintenance/personnel', '/biz/maintenance/vehicles', '/biz/maintenance/generators', '/biz/performance/monthly-score', '/biz/performance/overview', '/biz/performance/upload',
-    '/biz/engineering/assessment/import', '/biz/engineering/assessment/entry', '/biz/engineering/assessment/detail', '/biz/engineering/assessment',
-  ];
-  const selectedKey = navigationPaths.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
-  const activeGroupKey = location.pathname.startsWith('/biz/analysis')
-    ? 'biz-analysis'
-    : location.pathname.startsWith('/biz/operation') || location.pathname.startsWith('/biz/contract-overview')
-      || location.pathname.startsWith('/biz/fee-rates')
-      ? 'biz-contract'
-    : location.pathname.startsWith('/biz/costs')
-      ? 'biz-cost'
-      : location.pathname.startsWith('/biz/orders') || location.pathname.startsWith('/biz/offline-completions')
-        ? 'biz-completion'
-        : location.pathname.startsWith('/biz/engineering')
-          ? 'assessment'
-        : location.pathname.startsWith('/biz/performance')
-          ? 'performance'
-        : /^\/biz\/maintenance\/(vehicles|generators)$/.test(location.pathname)
-          // 只有车辆/油机在「资产管理」分组里；总览、到期台账、人员都是顶层叶子，
-          // 原先对所有 /biz/maintenance 都展开资产管理，点「到期台账」会顺带弹开无关分组
-          ? 'maintenance-assets'
-        : undefined;
+  // 叶子路由必须优先于父路由匹配；NAV_PATHS 已按路径长度倒序，
+  // 否则 /biz/analysis/trend 会被 /biz/analysis 抢占，未列出的路由还会错误回退为“合同上传”。
+  const selectedKey = NAV_PATHS.find((path) => location.pathname === path || location.pathname.startsWith(`${path}/`));
+  // 分组 → 父菜单 key 的映射也在配置文件里，顶层叶子（总览/台账/人员）返回 undefined，不会顺带弹开无关分组
+  const activeGroupKey = parentMenuKeyOfPath(location.pathname);
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   /**
    * 只在「路由切到另一个分组」时自动展开该分组。
@@ -281,7 +207,7 @@ export default function BizLayout() {
     setOpenKeys((prev) => (prev.includes(activeGroupKey) ? prev : [...prev, activeGroupKey]));
   }, [activeGroupKey]);
 
-  // 一级、二级门户独立呈现模块卡片，进入具体模块后才显示业务侧栏。
+  // 工作台（原一级门户）是登录后的落地页，全屏呈现，进入具体模块后才显示业务侧栏。
   const isModulePortal = location.pathname === '/biz/portal';
 
   const menu = (
@@ -300,11 +226,11 @@ export default function BizLayout() {
 
   if (isModulePortal) return <Outlet />;
   if (!me) return <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>;
-  const modulePermission = isSystemModule ? 'portal.system.enter' : isEngineeringModule ? 'portal.engineering.enter' : isMaintenanceModule ? 'portal.maintenance.enter'
-    : location.pathname === '/biz/placeholder/engineering' ? 'portal.engineering.enter'
-      : /^\/biz\/(operation|analysis|contract-overview|fee-rates|orders|offline-completions|costs)(\/|$)/.test(location.pathname) ? 'maintenance.operation.enter' : undefined;
+  const modulePermission = isSystemModule ? BizPermissionCode.PORTAL_SYSTEM_ENTER : isEngineeringModule ? BizPermissionCode.PORTAL_ENGINEERING_ENTER : isMaintenanceModule ? BizPermissionCode.PORTAL_MAINTENANCE_ENTER
+    : location.pathname === '/biz/placeholder/engineering' ? BizPermissionCode.PORTAL_ENGINEERING_ENTER
+      : /^\/biz\/(operation|analysis|contract-overview|fee-rates|orders|offline-completions|costs)(\/|$)/.test(location.pathname) ? BizPermissionCode.MAINTENANCE_OPERATION_ENTER : undefined;
   if (me && modulePermission && !isSuper && !permSet.has(modulePermission)) {
-    return <Result status="403" title="没有访问该模块的权限" extra={<Button onClick={() => navigate('/biz/portal')}>返回门户</Button>} />;
+    return <Result status="403" title="没有访问该模块的权限" extra={<Button onClick={() => navigate('/biz/portal')}>返回工作台</Button>} />;
   }
 
   return (
@@ -324,7 +250,7 @@ export default function BizLayout() {
           <Space>
             {isMobile && <Button type="text" icon={<MenuOutlined />} onClick={() => setMobileOpen(true)} />}
             {isMobile && <Text strong>{moduleName}</Text>}
-            <Button type="text" icon={<HomeOutlined />} onClick={() => navigate('/biz/portal')}>门户首页</Button>
+            <Button type="text" icon={<HomeOutlined />} onClick={() => navigate('/biz/portal')}>工作台</Button>
           </Space>
           {!isMaintenanceModule && !isSystemModule && !isEngineeringModule && <SnapshotStatusBar />}
           <Dropdown
@@ -364,7 +290,7 @@ export default function BizLayout() {
         cancelText="取消"
         onCancel={() => { if (!passwordSaving) { setPasswordOpen(false); passwordForm.resetFields(); } }}
         onOk={() => { void passwordForm.submit(); }}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={passwordForm} layout="vertical" onFinish={(values) => { void submitPasswordChange(values); }}>
           <Form.Item name="currentPassword" label="原密码" rules={[{ required: true, message: '请输入原密码' }]}>

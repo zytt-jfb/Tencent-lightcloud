@@ -198,16 +198,12 @@ export class BizAdminService {
     const user = await this.userRepo.findOneBy({ id: userId });
     if (!user) throw new NotFoundException('账号不存在');
     if (user.roleCode === PlatformRole.SUPER_ADMIN) throw new BadRequestException('不允许调整 super_admin 数据范围');
-    await this.dataScopeRepo.delete({ userId });
+    // 只写 biz_user_scope_grants：biz_user_data_scopes 是遗留表，
+    // AccessScopeService.resolve() 与 loadUserAuthContext() 都不读它，写它属于死写。
+    // 保留 delete 是为了把历史遗留行清掉，避免日后有人误以为它还在生效。
     await this.scopeGrantRepo.delete({ userId });
+    await this.dataScopeRepo.delete({ userId });
     for (const input of inputs) {
-      await this.dataScopeRepo.save({
-        id: randomUUID(),
-        userId,
-        provinceId: input.provinceId ?? null,
-        cityId: input.cityId ?? null,
-        scopeType: input.provinceId === null && input.cityId === null ? 'all' : (input.cityId ? 'city' : 'province'),
-      });
       await this.scopeGrantRepo.save({ id: randomUUID(), userId, scopeType: input.provinceId === null && input.cityId === null ? 'all' : (input.cityId ? 'city' : 'province'), targetId: input.cityId ?? input.provinceId ?? null, effect: 'allow' });
     }
     user.authVersion += 1;
@@ -221,13 +217,24 @@ export class BizAdminService {
     return { roles: await this.userRoleRepo.findBy({ userId }), grants: await this.scopeGrantRepo.findBy({ userId }) };
   }
 
-  async setUserAccess(operatorId: string, userId: string, roles: string[], grants: ScopeGrantInput[]): Promise<void> {
+  /**
+   * 全量替换数据范围；roles 缺省时**不动角色绑定**。
+   * 历史问题：前端「数据范围」抽屉只回传单一 roleCode，保存范围会把 DBA 配好的多角色
+   * 覆盖回单角色。现在改为「显式传 roles 才改写角色」，并把 roles 开放为多选，
+   * 使建号之后也能改角色（原先只能建号时选一次）。
+   */
+  async setUserAccess(operatorId: string, userId: string, roles: string[] | undefined | null, grants: ScopeGrantInput[]): Promise<void> {
     const user = await this.userRepo.findOneBy({ id: userId });
     if (!user) throw new NotFoundException('账号不存在');
-    const normalizedRoles = [...new Set((roles ?? []).map((role) => String(role).trim()).filter((role) => PLATFORM_ROLES.includes(role as PlatformRole)))];
-    if (!normalizedRoles.length || normalizedRoles.includes(PlatformRole.SUPER_ADMIN)) throw new BadRequestException('角色配置无效，super_admin 只能保留系统内置账号');
-    const roleRows = await this.roleRepo.findBy({ code: In(normalizedRoles) });
-    if (roleRows.length !== normalizedRoles.length) throw new BadRequestException('存在不存在的角色');
+    const wantsRoleChange = roles !== undefined && roles !== null;
+    let normalizedRoles: string[] = [];
+    if (wantsRoleChange) {
+      normalizedRoles = [...new Set((roles ?? []).map((role) => String(role).trim()).filter((role) => PLATFORM_ROLES.includes(role as PlatformRole)))];
+      if (!normalizedRoles.length) throw new BadRequestException('角色配置无效：至少需要一个角色');
+      if (normalizedRoles.includes(PlatformRole.SUPER_ADMIN)) throw new BadRequestException('角色配置无效，super_admin 只能保留系统内置账号');
+      const roleRows = await this.roleRepo.findBy({ code: In(normalizedRoles) });
+      if (roleRows.length !== normalizedRoles.length) throw new BadRequestException('存在不存在的角色');
+    }
     const normalizedGrants = (grants ?? []).map((grant) => ({
       scopeType: grant.scopeType,
       targetId: grant.scopeType === 'all' ? null : String(grant.targetId ?? '').trim() || null,
@@ -246,11 +253,13 @@ export class BizAdminService {
       if (rows.length !== new Set(contractIds).size) throw new BadRequestException('存在不存在的合同范围');
     }
     await this.dataSource.transaction(async (manager) => {
-      await manager.delete(UserRoleEntity, { userId });
+      if (wantsRoleChange) {
+        await manager.delete(UserRoleEntity, { userId });
+        await manager.save(UserRoleEntity, normalizedRoles.map((roleCode, index) => ({ id: randomUUID(), userId, roleCode, isPrimary: index === 0 })));
+      }
       await manager.delete(UserScopeGrantEntity, { userId });
-      await manager.save(UserRoleEntity, normalizedRoles.map((roleCode, index) => ({ id: randomUUID(), userId, roleCode, isPrimary: index === 0 })));
       await manager.save(UserScopeGrantEntity, normalizedGrants.map((grant) => ({ id: randomUUID(), userId, scopeType: grant.scopeType, targetId: grant.targetId, effect: grant.effect })));
-      user.roleCode = normalizedRoles[0];
+      if (wantsRoleChange) user.roleCode = normalizedRoles[0];
       user.cityId = normalizedGrants.find((grant) => grant.scopeType === 'city' && grant.effect === 'allow')?.targetId ?? null;
       user.authVersion += 1;
       await manager.save(PlatformUserEntity, user);

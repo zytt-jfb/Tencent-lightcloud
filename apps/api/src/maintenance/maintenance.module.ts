@@ -28,5 +28,7 @@ import { ConfigModule } from '@nestjs/config';
   ],
   controllers: [MaintenanceOverviewController, MaintenancePersonnelController, MaintenanceVehicleController, MaintenanceGeneratorController],
   providers: [MaintenanceOverviewService, MaintenanceScopeService, MaintenancePersonnelService, MaintenanceVehicleService, MaintenanceGeneratorService, MaintenanceDocumentService, FactSourceFileStorageService],
+  // 工作台要拿到期待办数字，必须先导出；总览/台账/工作台三处共用 compute() 同一份口径
+  exports: [MaintenanceOverviewService],
 })
 export class MaintenanceModule {}

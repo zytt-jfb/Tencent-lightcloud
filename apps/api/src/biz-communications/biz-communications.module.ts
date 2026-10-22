@@ -14,5 +14,7 @@ import { BizAnnouncementController } from './biz-announcement.controller';
   imports: [TypeOrmModule.forFeature([BizAnnouncementEntity, BizAnnouncementReadEntity, BizMessageEntity, BizOperationLogEntity, CityEntity]), RbacModule],
   controllers: [BizMessageController, BizAnnouncementController],
   providers: [BizCommunicationService],
+  // 工作台复用 listInbox 的未读口径，避免另写一套「什么算未读」的判断
+  exports: [BizCommunicationService],
 })
 export class BizCommunicationsModule {}

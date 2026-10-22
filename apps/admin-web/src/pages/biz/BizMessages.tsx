@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Form, Input, Modal, Select, Space, Table, Tabs, Tag, Typography, message } from 'antd';
@@ -39,8 +40,8 @@ export default function BizMessages() {
   const [form] = Form.useForm<AnnouncementForm>();
   const roleCode = me?.roleCode ?? '';
   const permissions = new Set(me?.permissions ?? []);
-  const canManage = roleCode === 'super_admin' || permissions.has('operation.announcement.create');
-  const canPublish = roleCode === 'super_admin' || permissions.has('operation.announcement.publish');
+  const canManage = roleCode === 'super_admin' || permissions.has(BizPermissionCode.OPERATION_ANNOUNCEMENT_CREATE);
+  const canPublish = roleCode === 'super_admin' || permissions.has(BizPermissionCode.OPERATION_ANNOUNCEMENT_PUBLISH);
   const provinceOptions = provinces.map((item) => ({ value: item.id, label: item.name }));
   const selectedProvince = Form.useWatch('provinceId', form);
   const cityOptions = useMemo(() => cities.filter((item) => !selectedProvince || item.provinceId === selectedProvince).map((item) => ({ value: item.id, label: item.name })), [cities, selectedProvince]);

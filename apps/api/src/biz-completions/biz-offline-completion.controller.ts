@@ -20,8 +20,20 @@ export class BizOfflineCompletionController {
 
   @Get()
   @BizPermissions(BizPermissionCode.OPERATION_COMPLETION_READ)
-  async list(@BizAuthUser() auth: BizAuthContext, @Query('cityId') cityId?: string, @Query('status') status?: string) {
-    return { items: await this.service.list(auth, { cityId, status }) };
+  async list(
+    @BizAuthUser() auth: BizAuthContext,
+    @Query('cityId') cityId?: string,
+    @Query('status') status?: string,
+    @Query('businessMonth') businessMonth?: string,
+    @Query('contractId') contractId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.list(auth, {
+      cityId, status, businessMonth, contractId,
+      page: page == null || page === '' ? undefined : Number(page),
+      pageSize: pageSize == null || pageSize === '' ? undefined : Number(pageSize),
+    });
   }
 
   @Get(':id')

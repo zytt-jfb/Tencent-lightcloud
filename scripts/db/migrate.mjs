@@ -832,6 +832,22 @@ async function inspectState(version) {
     );
     return Number(grantCount) >= 6 ? 'satisfied' : 'empty';
   }
+  if (version === '047_revoke_contract_manager_cost') {
+    // 判据：contract_manager 角色授权、以及以 contract_manager 为主角色用户的 allow override，
+    // 均不再持有 operation.cost.* 权限（019 曾误授，047 回收；全新库同样以本判据收敛）
+    if (!await adapter.tableExists('biz_role_permissions')) return 'empty';
+    const roleGrantCount = await adapter.scalar(
+      "SELECT COUNT(*) FROM biz_role_permissions rp JOIN biz_roles r ON r.id = rp.role_id WHERE r.code = 'contract_manager' AND rp.permission_code LIKE 'operation.cost.%'",
+    );
+    if (Number(roleGrantCount) > 0) return 'empty';
+    if (await adapter.tableExists('biz_user_permission_overrides') && await adapter.tableExists('biz_user_roles')) {
+      const overrideCount = await adapter.scalar(
+        "SELECT COUNT(*) FROM biz_user_permission_overrides o JOIN biz_user_roles ur ON ur.user_id = o.user_id AND ur.is_primary = 1 WHERE ur.role_code = 'contract_manager' AND o.effect = 'allow' AND o.permission_code LIKE 'operation.cost.%'",
+      );
+      if (Number(overrideCount) > 0) return 'empty';
+    }
+    return 'satisfied';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 

@@ -1,3 +1,4 @@
+import { BizPermissionCode } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, DatePicker, Input, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -46,7 +47,7 @@ function formatAction(value: unknown, summary?: unknown): string {
 function readableObject(value: unknown) { const raw = String(value ?? ''); return OBJECT_LABEL[raw] ?? OBJECT_LABEL[raw.replace(/-/g, '_')] ?? '业务记录'; }
 
 export default function BizAuditLogs() {
-  const canRead = useBizPermission('operation.user.manage');
+  const canRead = useBizPermission(BizPermissionCode.OPERATION_USER_MANAGE);
   const [users, setUsers] = useState<LogRow[]>([]);
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [total, setTotal] = useState(0);
