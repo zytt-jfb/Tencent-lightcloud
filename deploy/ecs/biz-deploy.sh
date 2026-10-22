@@ -81,8 +81,30 @@ if [ "$PULL_ONLY" = "1" ]; then
 else
   # 只构建 api 与 frontend。migrate 不再单独构建 —— 每个镜像构建都会各跑一次 pnpm install，
   # 三次全量安装正是单次发布耗时 27~42 分钟的主因；迁移改为复用 api 镜像执行。
-  log "构建镜像（api / frontend）"
-  docker compose -f compose.yml build api frontend
+  #
+  # 磁盘闸门（2026-10-22 事故）：构建缓存无上限增长，曾涨到 18.5G 把 40G 系统盘顶到 95%，
+  # 构建直接卡死在半路、整机失联 74 分钟。这里在开构建前先看可用空间：
+  #   < 8G：自动清一次构建缓存（缓存可再生，不影响镜像与数据）
+  #   < 4G：直接中止，交给人工处理，绝不在磁盘将满时硬上
+  AVAIL_KB=$(df -Pk "$DEPLOY_DIR" | awk 'NR==2 {print $4}')
+  if [ "${AVAIL_KB:-0}" -lt 8388608 ]; then
+    log "磁盘可用 $((AVAIL_KB / 1024))MB 低于 8G，先清理构建缓存"
+    docker builder prune -af >/dev/null 2>&1 || true
+    AVAIL_KB=$(df -Pk "$DEPLOY_DIR" | awk 'NR==2 {print $4}')
+    log "清理后可用 $((AVAIL_KB / 1024))MB"
+  fi
+  if [ "${AVAIL_KB:-0}" -lt 4194304 ]; then
+    log "【中止】磁盘可用仅 $((AVAIL_KB / 1024))MB（阈值 4G），请先清理磁盘再部署"
+    exit 1
+  fi
+
+  # 串行构建：2C2G 跑不动「两个镜像同时构建」——内存会冲到 98%，MySQL 被 OOM 杀掉，
+  # 整机失联（2026-10-22，74 分钟）。拆成两次调用，确保同一时刻只有一个构建在跑，
+  # 代价是总耗时略增，但换来的是发布过程不再把线上打挂。
+  log "构建镜像（api）"
+  docker compose -f compose.yml build api
+  log "构建镜像（frontend）"
+  docker compose -f compose.yml build frontend
 fi
 
 # ---------- 4.5 迁移前备份（保留最近 3 份）----------
