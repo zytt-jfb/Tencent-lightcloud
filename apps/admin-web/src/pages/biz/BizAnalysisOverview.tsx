@@ -14,7 +14,7 @@ import {
 import { useBizSnapshot } from '@/components/biz/BizSnapshotContext';
 import { BizAnalysisFilter, EMPTY_ANALYSIS_FILTER, type AnalysisFilterValue } from '@/components/biz/BizAnalysisFilter';
 import { useBizAnalysisOptions } from '@/components/biz/BizAnalysisOptionsContext';
-import { ALERT_TYPE_OPTIONS, alertTypeLabel, dedupeAlertsByContract, normalizeAlerts, selectVisibleAlerts } from '@/utils/alert-filter';
+import { ALERT_TYPE_OPTIONS, alertTypeLabel, compareEndDate, dedupeAlertsByContract, normalizeAlerts, selectVisibleAlerts, sortAlertsByEndDate } from '@/utils/alert-filter';
 import { DownloadOutlined } from '@ant-design/icons';
 import { writeWorkbook } from '@/utils/page-export-core';
 const { Title, Text } = Typography;
@@ -144,7 +144,7 @@ export default function BizAnalysisOverview() {
    * 用户看到的条数和「实际有多少份合同要到期」完全不是一回事（线上曾出现 115 行 / 33 份的偏差）。
    */
   const visibleAlerts = useMemo(
-    () => dedupeAlertsByContract(selectVisibleAlerts(alerts, alertTypes)),
+    () => sortAlertsByEndDate(dedupeAlertsByContract(selectVisibleAlerts(alerts, alertTypes))),
     [alerts, alertTypes],
   );
   /** 去重后仍可能同一合同挂了两种预警（如即将到期 + 接近满额），所以合同数单独统计 */
@@ -229,7 +229,7 @@ export default function BizAnalysisOverview() {
       { title: '合同编号', dataIndex: 'contractNo', render: (value: string, row) => <Button type="link" size="small" onClick={() => void openContractDetail(String(row.contractId ?? ''))}>{value}</Button> },
       { title: '合同名称', dataIndex: 'contractName', ellipsis: true },
       { title: '预警类型', dataIndex: 'alertType', render: (value: string) => <span style={{ color: value === 'expired' ? '#cf1322' : value === 'expiring' ? '#fa8c16' : value === 'nearly_full' ? '#faad14' : value === 'overfull' ? '#cf1322' : '#999' }}>{alertTypeLabel(value)}</span> },
-      { title: '到期日期', dataIndex: 'endDate', render: (value: string | null) => value ?? '-' },
+      { title: '到期日期', dataIndex: 'endDate', defaultSortOrder: 'ascend', sorter: (left: Record<string, unknown>, right: Record<string, unknown>) => compareEndDate(left.endDate, right.endDate), render: (value: string | null) => value ?? '-' },
       {
         title: '完工进度',
         key: 'progress',

@@ -87,3 +87,40 @@ export function selectVisibleAlerts(items: AlertRow[] | undefined | null, select
   return filterAlertsByTypes(normalizeAlerts(items), selected)
     .sort((left, right) => (ALERT_TYPE_ORDER.get(String(left.alertType)) ?? Number.MAX_SAFE_INTEGER) - (ALERT_TYPE_ORDER.get(String(right.alertType)) ?? Number.MAX_SAFE_INTEGER));
 }
+
+/**
+ * 到期日期比较器（列头 sorter 用）：升序，空值排最后。
+ *  - 两者都有值：ISO 日期字符串直接字典序比较（'YYYY-MM-DD' 字典序 = 日期序）；
+ *  - 任一方为空（null / '' / undefined）：有值的在前，空的在后；
+ *  - 完全相等返回 0。
+ */
+export function compareEndDate(a: unknown, b: unknown): number {
+  const la = a == null || a === '' ? '' : String(a);
+  const ra = b == null || b === '' ? '' : String(b);
+  if (la && !ra) return -1;
+  if (!la && ra) return 1;
+  if (la !== ra) return la < ra ? -1 : 1;
+  return 0;
+}
+
+/**
+ * 按到期日期升序排序（预警紧迫度：最早到期 / 已到期在前）。
+ *  - endDate 为 null / 空 的排最后（不让无日期合同窜到最前）；
+ *  - 同日期兜底：先按预警类型顺序（沿用 ALERT_TYPE_ORDER），再按合同编号，保证分页稳定不乱跳。
+ * 返回新数组，不修改入参。供数据层使用（使表格默认序与 Excel 导出序一致）。
+ */
+export function sortAlertsByEndDate(items: AlertRow[] | undefined | null): AlertRow[] {
+  if (!Array.isArray(items)) return [];
+  const copy = items.slice();
+  copy.sort((left, right) => {
+    const cmp = compareEndDate(left?.endDate, right?.endDate);
+    if (cmp !== 0) return cmp;
+    const lt = ALERT_TYPE_ORDER.get(String(left?.alertType)) ?? Number.MAX_SAFE_INTEGER;
+    const rt = ALERT_TYPE_ORDER.get(String(right?.alertType)) ?? Number.MAX_SAFE_INTEGER;
+    if (lt !== rt) return lt - rt;
+    const lc = String(left?.contractNo ?? '');
+    const rc = String(right?.contractNo ?? '');
+    return lc < rc ? -1 : lc > rc ? 1 : 0;
+  });
+  return copy;
+}
