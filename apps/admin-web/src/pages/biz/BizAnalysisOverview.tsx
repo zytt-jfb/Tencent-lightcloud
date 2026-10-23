@@ -40,7 +40,7 @@ export default function BizAnalysisOverview() {
   const [cityRows, setCityRows] = useState<Array<Record<string, unknown>>>([]);
   const [overrunRows, setOverrunRows] = useState<Array<Record<string, unknown>>>([]);
   /** 预警类型多选：空数组 = 全部真实预警。纯前端筛选，不触发整页数据重新请求 */
-  const [alertTypes, setAlertTypes] = useState<string[]>([]);
+  const [alertTypes, setAlertTypes] = useState<string[]>(['expiring']);
   /** 「即将到期」的后端口径：窗口天数 + 快照基准日，用于在卡片头说明与工作台 30 天卡片的差异 */
   const [alertWindowDays, setAlertWindowDays] = useState<number | null>(null);
   const [alertAsOf, setAlertAsOf] = useState<string | null>(null);
@@ -223,7 +223,7 @@ export default function BizAnalysisOverview() {
               「即将到期」= {alertWindowDays} 天窗口{alertAsOf ? ` · 快照基准日 ${alertAsOf}` : ''}（工作台摘要卡按 30 天实时统计，两者口径不同）
             </Text>
           )}
-          <Select mode="multiple" labelInValue={false} maxTagCount="responsive" allowClear placeholder="预警类型（可多选，默认全部）" value={alertTypes} onChange={(values: string[]) => setAlertTypes(Array.isArray(values) ? values : [])} options={ALERT_TYPE_OPTIONS} style={{ width: 280 }} />
+          <Select mode="multiple" labelInValue={false} maxTagCount="responsive" allowClear placeholder="预警类型（可多选，默认即将到期）" value={alertTypes} onChange={(values: string[]) => setAlertTypes(Array.isArray(values) ? values : [])} options={ALERT_TYPE_OPTIONS} style={{ width: 280 }} />
         </Space>
       )}><Table<Record<string, unknown>> size="small" rowKey={(row) => `${String(row.contractId ?? '')}-${String(row.alertType ?? '')}-${String(row.cityId ?? '')}`} pagination={{ pageSize: 10 }} dataSource={visibleAlerts} locale={{ emptyText: alertTypes.length ? '暂无符合条件的预警' : '暂无预警' }} columns={[
       { title: '合同编号', dataIndex: 'contractNo', render: (value: string, row) => <Button type="link" size="small" onClick={() => void openContractDetail(String(row.contractId ?? ''))}>{value}</Button> },
