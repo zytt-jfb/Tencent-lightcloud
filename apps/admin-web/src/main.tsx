@@ -26,14 +26,21 @@ async function bootstrap() {
           locale={zhCN}
           theme={{
             token: {
-              colorPrimary: '#2f9e62', colorInfo: '#2878b8', colorSuccess: '#2f9e62', colorWarning: '#c47b20', colorError: '#c64b4b',
-              colorText: '#293238', colorTextSecondary: '#68737b',               colorBorder: '#dfe4e7', colorBgLayout: '#f6f8f9',
-              borderRadius: 4, borderRadiusLG: 6, fontFamily: "Inter, 'Segoe UI', 'Microsoft YaHei', Arial, sans-serif",
+              // 白 + Apple 风：纯白底、Apple 蓝强调、中性石墨灰、发丝分隔线、大圆角、SF/PingFang 字体栈
+              colorPrimary: '#0071e3', colorInfo: '#0071e3',
+              colorSuccess: '#34c759', colorWarning: '#ff9f0a', colorError: '#ff3b30',
+              colorText: '#1d1d1f', colorTextSecondary: '#86868b', colorTextTertiary: '#a1a1a6',
+              colorBorder: '#e3e3e8', colorBorderSecondary: '#ececf0', colorBgLayout: '#ffffff',
+              colorBgContainer: '#ffffff', colorBgElevated: '#ffffff',
+              borderRadius: 8, borderRadiusLG: 12,
+              fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', Arial, sans-serif",
             },
             components: {
-              Button: { controlHeight: 34 },
-              Card: { headerHeight: 44, bodyPadding: 16 },
-              Table: { cellPaddingBlock: 10, cellPaddingInline: 12, headerBg: '#f7f9fa' },
+              Button: { controlHeight: 36 },
+              Card: { headerHeight: 48, bodyPadding: 20 },
+              Table: { cellPaddingBlock: 12, cellPaddingInline: 16, headerBg: '#f5f5f7', headerColor: '#6e6e73', headerSplitColor: '#e3e3e8', borderColor: '#ececf0' },
+              Layout: { siderBg: '#fbfbfd', headerBg: '#ffffff', bodyBg: '#ffffff', triggerBg: '#ffffff', triggerColor: '#86868b' },
+              Menu: { itemBg: '#fbfbfd', itemSelectedBg: '#e8f1fe', itemSelectedColor: '#0071e3', itemHoverBg: '#f5f5f7', itemHeight: 40, itemMarginInline: 4, itemBorderRadius: 8 },
             },
           }}
         >

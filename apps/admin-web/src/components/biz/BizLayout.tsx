@@ -221,7 +221,7 @@ export default function BizLayout() {
     <Menu
       className="biz-navigation"
       mode="inline"
-      theme="dark"
+      theme="light"
       style={{ borderInlineEnd: 'none' }}
       selectedKeys={selectedKey ? [String(selectedKey)] : []}
       items={isSystemModule ? systemItems : isEngineeringModule ? engineeringItems : isMaintenanceModule ? standaloneMaintenanceItems : (isMobile ? mobileMenuItems : menuItems)}
@@ -244,7 +244,7 @@ export default function BizLayout() {
     <BizSnapshotProvider>
       <Layout style={{ minHeight: '100vh' }}>
       {!isMobile && (
-        <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} width={200} style={{ position: 'sticky', top: 0, height: '100vh' }}>
+        <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} width={200} style={{ position: 'sticky', top: 0, height: '100vh', background: '#fbfbfd', borderRight: '1px solid #e3e3e8' }}>
           <div className="biz-sider-brand">
             <img className="biz-sider-logo" src={`${import.meta.env.BASE_URL}logo.jpg`} alt="中屹技术" />
             {!collapsed && <span className="biz-sider-name">{moduleName}</span>}
@@ -268,7 +268,7 @@ export default function BizLayout() {
             ] }}
           >
             <Space style={{ cursor: 'pointer' }}>
-              <Avatar size="small" icon={<UserOutlined />} style={{ background: '#2f9e62' }} />
+              <Avatar size="small" icon={<UserOutlined />} style={{ background: '#0071e3' }} />
               <Text>{me?.username ?? ''}</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>{me ? ROLE_LABEL[me.roleCode] ?? me.roleCode : ''}</Text>
             </Space>
@@ -284,9 +284,9 @@ export default function BizLayout() {
         open={isMobile && mobileOpen}
         onClose={() => setMobileOpen(false)}
         width={240}
-        styles={{ body: { padding: 0, background: '#001529' } }}
+        styles={{ body: { padding: 0, background: '#ffffff' } }}
       >
-        <div style={{ padding: 16, fontWeight: 600, color: '#fff' }}>{moduleName}</div>
+        <div style={{ padding: 16, fontWeight: 600, color: '#1d1d1f' }}>{moduleName}</div>
         {menu}
       </Drawer>
       <Modal

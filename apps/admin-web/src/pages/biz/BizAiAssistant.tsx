@@ -45,7 +45,7 @@ const SUGGESTION_LIMIT = 6;
  * 后端只给 option 结构与数值，颜色交给前端统一成整站主色；
  * 若后端将来自己声明了 color，则后端的优先（展开顺序决定）。
  */
-const CHART_PALETTE = ['#2f9e62', '#4e9bd6', '#e0a32e', '#dd6b4d', '#8d98b3', '#7a68b8'];
+const CHART_PALETTE = ['#0071e3', '#4e9bd6', '#e0a32e', '#dd6b4d', '#8d98b3', '#7a68b8'];
 
 export default function BizAiAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);

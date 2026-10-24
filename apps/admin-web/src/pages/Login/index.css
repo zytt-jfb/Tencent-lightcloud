@@ -5,7 +5,7 @@
   --login-fg: #293238;
   --login-muted: #68737b;
   --login-border: #dfe4e7;
-  --login-accent: #2f9e62;
+  --login-accent: #0071e3;
 }
 
 .login-page {
@@ -36,7 +36,7 @@
 .login-company { display: flex; align-items: center; gap: 11px; color: #eef3f3; font-size: 13px; }
 .login-company img { width: 36px; height: 36px; border-radius: 3px; object-fit: cover; }
 .login-company strong { font-weight: 600; }
-.login-brand-kicker { color: #83d2a5; font-size: 11px; font-weight: 650; }
+.login-brand-kicker { color: #6fb3f2; font-size: 11px; font-weight: 650; }
 .login-brand-copy h1 { max-width: 9em; margin: 12px 0 16px; color: #fff; font-size: 34px; font-weight: 650; line-height: 1.22; letter-spacing: 0; }
 .login-brand-copy p { color: #b8c4c7; font-size: 13px; }
 .login-trust-note { color: #8f9da1; font-size: 10px; line-height: 1.5; }
@@ -53,7 +53,7 @@
 .login-remember-row.ant-form-item { margin: -1px 0 20px; }
 .login-remember-row .ant-checkbox-wrapper { color: var(--login-muted); font-size: 12px; }
 .login-submit.ant-btn { min-height: 42px; border-radius: 4px; background: var(--login-accent); font-weight: 600; box-shadow: none; }
-.login-submit.ant-btn:hover { background: #278854 !important; }
+.login-submit.ant-btn:hover { background: #0062c4 !important; }
 .login-form-note { margin-top: 23px; color: #98a1a6; font-size: 9px; text-align: center; }
 
 @media (max-width: 760px) {

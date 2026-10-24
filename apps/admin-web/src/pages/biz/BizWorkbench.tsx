@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Empty, Result, Skeleton, Tabs, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Empty, Form, Input, Modal, Result, Skeleton, Tabs, Typography, message } from 'antd';
+import { LockOutlined, ReloadOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
-import { bizMe, type BizMeResult } from '@/api/biz.api';
+import { bizMe, bizChangeOwnPassword, type BizMeResult } from '@/api/biz.api';
 import { bizWorkbench, type WorkbenchResult, type WorkbenchSummary } from '@/api/workbench.api';
 import { NAV_GROUPS, NAV_MODULES, ROLE_LABEL, visibleLeaves } from '@/components/biz/biz-navigation';
 import { clearBizToken } from '@/utils/biz-auth';
@@ -83,6 +83,30 @@ export default function BizWorkbench() {
   const [workbench, setWorkbench] = useState<WorkbenchResult | null>(null);
   const [todoLoading, setTodoLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const [pwdSubmitting, setPwdSubmitting] = useState(false);
+  const [pwdForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
+
+  async function submitPassword(values: { currentPassword: string; newPassword: string; confirmPassword: string }) {
+    if (values.newPassword !== values.confirmPassword) {
+      pwdForm.setFields([{ name: 'confirmPassword', errors: ['两次输入的新密码不一致'] }]);
+      return;
+    }
+    setPwdSubmitting(true);
+    try {
+      await bizChangeOwnPassword(values);
+      setPwdOpen(false);
+      pwdForm.resetFields();
+      clearBizToken();
+      clearBizPermissionCache();
+      message.success('密码已修改，请使用新密码重新登录');
+      navigate('/login?reason=password-changed', { replace: true });
+    } catch {
+      /* 错误提示由请求层统一处理 */
+    } finally {
+      setPwdSubmitting(false);
+    }
+  }
 
   const loadTodos = useCallback(() => {
     setTodoLoading(true);
@@ -445,6 +469,11 @@ export default function BizWorkbench() {
                     <span className="wb-meta-val">{workbench ? `${todos.length} 项` : '—'}</span>
                   </div>
                 </div>
+                <div className="wb-panel-foot">
+                  <Button type="link" size="small" icon={<LockOutlined />} onClick={() => setPwdOpen(true)}>
+                    修改密码
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -459,6 +488,29 @@ export default function BizWorkbench() {
         />
         </BizSnapshotProvider>
       </main>
+      <Modal
+        title="修改密码"
+        open={pwdOpen}
+        onCancel={() => { setPwdOpen(false); pwdForm.resetFields(); }}
+        onOk={() => pwdForm.submit()}
+        okText="修改密码并退出"
+        confirmLoading={pwdSubmitting}
+        destroyOnHidden
+        maskClosable={false}
+        width={400}
+      >
+        <Form form={pwdForm} layout="vertical" onFinish={(values) => void submitPassword(values)} requiredMark={false} style={{ marginTop: 12 }}>
+          <Form.Item name="currentPassword" label="原密码" rules={[{ required: true, message: '请输入原密码' }]}>
+            <Input.Password prefix={<LockOutlined />} autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item name="newPassword" label="新密码" rules={[{ required: true, message: '请输入新密码' }, { min: 8, max: 128, message: '密码长度必须为 8-128 位' }]}>
+            <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item name="confirmPassword" label="确认新密码" rules={[{ required: true, message: '请再次输入新密码' }]}>
+            <Input.Password prefix={<LockOutlined />} autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
