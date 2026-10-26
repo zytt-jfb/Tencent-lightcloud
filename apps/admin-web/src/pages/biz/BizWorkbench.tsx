@@ -100,7 +100,9 @@ export default function BizWorkbench() {
       clearBizToken();
       clearBizPermissionCache();
       message.success('密码已修改，请使用新密码重新登录');
-      navigate('/login?reason=password-changed', { replace: true });
+      // 必须落新版登录页：旧版 /login 会读取残留的 admin_token 自动恢复旧体系会话，
+      // 把用户直接带进 /admin/*、/city/* 旧界面，表现就是「改密重登后指向旧页面」。
+      navigate('/biz/login?reason=password-changed', { replace: true });
     } catch {
       /* 错误提示由请求层统一处理 */
     } finally {

@@ -59,6 +59,27 @@ export function resetAuthErrorState(): void {
   message.destroy();
 }
 
+/**
+ * 只复位「已跳转过登录页」标志，不清空当前 toast。
+ * 登录页挂载时用这个：resetAuthErrorState 会 message.destroy()，
+ * 把「密码已修改，请使用新密码重新登录」这类刚弹出的提示一起吞掉。
+ */
+export function resetAuthRedirectFlag(): void {
+  authRedirectStarted = false;
+}
+
+/**
+ * 取出请求实际携带的 Bearer token。
+ * 用于识别「迟到的 401」：改密/重置密码会让后端 authVersion+1，旧 token 立即失效，
+ * 但旧请求的响应可能晚于用户重新登录才回来，此时不能拿它去清掉刚拿到的新 token。
+ */
+function sentBearerToken(config: AxiosError['config']): string | undefined {
+  const raw = config?.headers?.Authorization;
+  if (typeof raw !== 'string') return undefined;
+  const token = raw.replace(/^Bearer\s+/i, '').trim();
+  return token || undefined;
+}
+
 function isLoginRoute(): boolean {
   return window.location.hash.includes('/login');
 }
@@ -104,10 +125,17 @@ request.interceptors.response.use(
       if (status === 401) {
         const currentRoute = window.location.hash.replace(/^#/, '') || '/';
         const isBizRoute = currentRoute === '/biz' || currentRoute.startsWith('/biz/');
-        if (isBizRoute) clearBizToken();
-        else clearToken();
+        // 迟到的 401：请求带的 token 已经不是当前存储的 token（用户已重新登录换了新 token）。
+        // 这种响应属于上一段会话，既不能清 token（会抹掉刚登录的新 token），也不能再跳登录页。
+        const sentToken = sentBearerToken(error.config);
+        const storedToken = isBizRoute ? getBizToken() : getToken();
+        const staleEpoch = Boolean(sentToken && storedToken && sentToken !== storedToken);
+        if (!staleEpoch) {
+          if (isBizRoute) clearBizToken();
+          else clearToken();
+        }
         const onLoginPage = isLoginRoute();
-        if (!onLoginPage && !authRedirectStarted) {
+        if (!staleEpoch && !onLoginPage && !authRedirectStarted) {
           authRedirectStarted = true;
           message.destroy();
           const loginPath = isBizRoute ? '/biz/login' : '/login';

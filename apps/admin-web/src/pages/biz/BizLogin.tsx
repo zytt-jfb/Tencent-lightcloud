@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Checkbox, Form, Input, Typography } from 'antd';
 import { LockOutlined, LoginOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { bizLogin } from '@/api/biz.api';
 import { setBizToken } from '@/utils/biz-auth';
 import { clearBizPermissionCache } from '@/utils/biz-permission';
+import { resetAuthRedirectFlag } from '@/utils/request';
 import './BizLogin.css';
 
 const { Title, Text } = Typography;
@@ -26,9 +27,18 @@ function readRememberedUsername(): string {
 
 export default function BizLogin() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const rememberedUsername = useMemo(readRememberedUsername, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const passwordChanged = searchParams.get('reason') === 'password-changed';
+
+  useEffect(() => {
+    // 「已跳转过登录页」是模块级标志，只有旧版登录页会复位它。
+    // 不复位的话，改密时旧 token 失效引发的 401 会把标志置为 true，
+    // 重新登录后拦截器不再处理 401，页面卡在半死状态，只能靠刷新恢复。
+    resetAuthRedirectFlag();
+  }, []);
 
   const onFinish = async (values: LoginValues) => {
     setLoading(true);
@@ -75,6 +85,7 @@ export default function BizLogin() {
             <Title level={2}>登录工作台</Title>
             <Text>请输入系统管理员分配的账号和密码</Text>
           </header>
+          {passwordChanged && !error && <Alert className="biz-login-alert" type="success" showIcon message="密码已修改，请使用新密码重新登录" />}
           {error && <Alert className="biz-login-alert" type="error" showIcon message={error} closable onClose={() => setError(null)} />}
           <Form<LoginValues>
             layout="vertical"

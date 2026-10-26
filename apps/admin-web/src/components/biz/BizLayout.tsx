@@ -96,12 +96,15 @@ export default function BizLayout() {
   useEffect(() => {
     let active = true;
     bizMe().then((user) => { if (active) setMe(user); }).catch((error: unknown) => {
+      // 组件已卸载（改密/退出后已跳登录页）说明这条响应属于上一段会话。
+      // 迟到的 401 不能再清 token，否则会把用户重新登录刚拿到的新 token 抹掉。
+      if (!active) return;
       const status = (error as { response?: { status?: number } }).response?.status;
       if (status === 401) {
         clearBizToken();
         clearBizPermissionCache();
         navigate('/biz/login', { replace: true });
-      } else if (active) {
+      } else {
         message.error(status === 403 ? '当前账号未配置业务角色或权限，请联系管理员' : '读取账号信息失败，请稍后重试');
       }
     });
