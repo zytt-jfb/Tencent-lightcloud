@@ -856,6 +856,23 @@ async function inspectState(version) {
       adapter.columnExists('biz_user_preferences', 'pref_value'),
     ]);
   }
+  if (version === '049_biz_permission_metadata') {
+    // 判据：角色/权限两张表的新列齐全 + 别名表存在（列有值与否不重要，本次只加结构）
+    if (!await adapter.tableExists('biz_permissions') || !await adapter.tableExists('biz_roles')) return 'empty';
+    return allOrNothing([
+      adapter.columnExists('biz_roles', 'role_type'),
+      adapter.columnExists('biz_roles', 'description'),
+      adapter.columnExists('biz_permissions', 'portal_domain'),
+      adapter.columnExists('biz_permissions', 'dangerous'),
+      adapter.tableExists('biz_permission_aliases'),
+    ]);
+  }
+  if (version === '050_assistant_import_permission') {
+    // 判据：导入权限码已进目录。不校验是否授予角色 —— 按设计本就不授予任何内置角色
+    if (!await adapter.tableExists('biz_permissions')) return 'empty';
+    // Number() 包裹：MySQL 驱动对 COUNT(*) 可能返回字符串，直接与数字比较会永远不成立
+    return Number(await adapter.scalar("SELECT COUNT(*) FROM biz_permissions WHERE code = 'assistant.import.execute'")) === 1 ? 'satisfied' : 'empty';
+  }
   fail(`STATE_CHECK_MISSING version=${version}`);
 }
 
