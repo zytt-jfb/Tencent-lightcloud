@@ -14,20 +14,22 @@ import { MaintenanceDocumentService } from './maintenance-document.service';
 import { MaintenanceOverviewController } from './maintenance-overview.controller';
 import { MaintenanceOverviewService } from './maintenance-overview.service';
 import { MaintenanceScopeService } from './maintenance-scope.service';
+import { MaintenanceBatchImportService } from './maintenance-batch-import.service';
 import { RbacModule } from '../rbac/rbac.module';
 import { CityEntity } from '../main-data/city.entity';
 import { ProvinceEntity } from '../main-data/province.entity';
 import { FactSourceFileStorageService } from '../facts/fact-source-file-storage.service';
+import { BizOperationLogEntity } from '../operation-logs/biz-operation-log.entity';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([MaintenancePersonnelEntity, MaintenanceVehicleEntity, MaintenanceGeneratorEntity, MaintenanceDocumentEntity, CityEntity, ProvinceEntity]),
+    TypeOrmModule.forFeature([MaintenancePersonnelEntity, MaintenanceVehicleEntity, MaintenanceGeneratorEntity, MaintenanceDocumentEntity, BizOperationLogEntity, CityEntity, ProvinceEntity]),
     RbacModule,
   ],
   controllers: [MaintenanceOverviewController, MaintenancePersonnelController, MaintenanceVehicleController, MaintenanceGeneratorController],
-  providers: [MaintenanceOverviewService, MaintenanceScopeService, MaintenancePersonnelService, MaintenanceVehicleService, MaintenanceGeneratorService, MaintenanceDocumentService, FactSourceFileStorageService],
+  providers: [MaintenanceOverviewService, MaintenanceScopeService, MaintenancePersonnelService, MaintenanceVehicleService, MaintenanceGeneratorService, MaintenanceDocumentService, MaintenanceBatchImportService, FactSourceFileStorageService],
   // 工作台要拿到期待办数字，必须先导出；总览/台账/工作台三处共用 compute() 同一份口径
   exports: [MaintenanceOverviewService],
 })

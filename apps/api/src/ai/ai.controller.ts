@@ -47,6 +47,12 @@ export class AiController {
     return this.service.intents(auth);
   }
 
+  @Get('import-types')
+  @ApiOperation({ summary: '批量导入类型清单（独立导入权限 + 模块写权限双闸过滤）' })
+  importTypes(@BizAuthUser() auth: BizAuthContext) {
+    return this.service.importTypes(auth);
+  }
+
   @Post('feedback')
   @ApiOperation({ summary: '对一次查询结果反馈（有用/没用）' })
   feedback(@BizAuthUser() auth: BizAuthContext, @Body() dto: AiFeedbackDto) {

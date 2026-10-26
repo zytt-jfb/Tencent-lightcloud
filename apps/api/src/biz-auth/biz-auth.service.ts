@@ -145,6 +145,8 @@ export class BizAuthService {
     cityId: string | null;
     sensitiveOrderScope: string;
     permissions: string[];
+    /** 门户域集合：前端模块守卫只看这个，不再自己按路径猜权限 */
+    modules: string[];
     dataScope: { scopeType: string; provinceIds: string[]; cityId: string | null };
   }> {
     return {
@@ -154,6 +156,7 @@ export class BizAuthService {
       cityId: ctx.cityId,
       sensitiveOrderScope: ctx.sensitiveOrderScope,
       permissions: ctx.isSuperAdmin ? ['*'] : Array.from(ctx.permissionCodes),
+      modules: Array.from(ctx.modulePermissions),
       dataScope: ctx.dataScope,
     };
   }

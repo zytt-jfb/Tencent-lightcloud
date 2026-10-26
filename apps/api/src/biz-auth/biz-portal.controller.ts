@@ -8,14 +8,23 @@ import { BizPermissions } from './biz-permissions.decorator';
 import { BizAuthContext } from '../rbac/rbac.service';
 import { BizAuthUser } from './biz-auth-user.decorator';
 import { ModuleEntity } from '../rbac/module.entity';
-import { BizPermissionCode } from '@biz-reporting/shared-types';
+import { PortalDomain, type PortalDomainValue } from '@biz-reporting/shared-types';
 
-const MODULE_ENTER_PERMISSION: Record<string, string> = {
-  engineering: BizPermissionCode.PORTAL_ENGINEERING_ENTER,
-  maintenance: BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
-  operation: BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
-  asset: BizPermissionCode.MAINTENANCE_ASSET_ENTER,
-  personnel: BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
+/**
+ * 一级模块（engineering / maintenance / operation）的可见性按「域」判定：
+ * 拥有该模块下任意一个权限即可进入，不再要求单独的 portal.*.enter。
+ * 二级模块（asset / personnel）沿用细粒度权限码 —— 它们是同一域下的并列子集，
+ * 用域判定会把「只有资产管理权限的人」也放进人员管理。
+ */
+const LEVEL1_DOMAIN: Record<string, PortalDomainValue> = {
+  engineering: PortalDomain.ENGINEERING,
+  maintenance: PortalDomain.MAINTENANCE,
+  operation: PortalDomain.OPERATION,
+};
+
+const LEVEL2_PERMISSION: Record<string, string> = {
+  asset: 'maintenance.asset.enter',
+  personnel: 'maintenance.personnel.enter',
 };
 
 /**
@@ -36,9 +45,7 @@ export class BizPortalController {
   @Public()
   async modules(@BizAuthUser() auth: BizAuthContext) {
     const all = await this.moduleRepo.find({ order: { sortOrder: 'ASC' } });
-    const allowed = (code: string) =>
-      auth.isSuperAdmin ||
-      auth.permissionCodes.has(MODULE_ENTER_PERMISSION[code] ?? '');
+    const allowed = (code: string) => this.canEnterModule(auth, code);
 
     const level1 = all
       .filter((m) => m.level === 'level1' && allowed(m.code))
@@ -47,7 +54,7 @@ export class BizPortalController {
       .filter((m) => m.level === 'level2' && allowed(m.code))
       .map((m) => ({ id: m.id, code: m.code, name: m.name, level: m.level, parentId: m.parentId, sortOrder: m.sortOrder }));
 
-    if (auth.isSuperAdmin || auth.permissionCodes.has('portal.system.enter')) {
+    if (auth.isSuperAdmin || auth.modulePermissions.has(PortalDomain.SYSTEM)) {
       level1.push({ id: 'system-settings', code: 'system', name: '系统设置', level: 'level1', sortOrder: 100 });
     }
     return { level1, level2 };
@@ -60,9 +67,15 @@ export class BizPortalController {
     if (!['engineering', 'asset', 'personnel'].includes(code)) {
       return { code, found: false, message: '未知模块' };
     }
-    if (!auth.isSuperAdmin && !auth.permissionCodes.has(MODULE_ENTER_PERMISSION[code] ?? '')) {
-      return { code, found: true, message: '建设中', accessible: false };
-    }
-    return { code, found: true, message: '建设中', accessible: true };
+    return { code, found: true, message: '建设中', accessible: this.canEnterModule(auth, code) };
+  }
+
+  /** 一级模块看域、二级模块看细粒度权限码（详见文件顶部的常量注释） */
+  private canEnterModule(auth: BizAuthContext, code: string): boolean {
+    if (auth.isSuperAdmin) return true;
+    const domain = LEVEL1_DOMAIN[code];
+    if (domain) return auth.modulePermissions.has(domain);
+    const permission = LEVEL2_PERMISSION[code];
+    return permission ? auth.permissionCodes.has(permission) : false;
   }
 }

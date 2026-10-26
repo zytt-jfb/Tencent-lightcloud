@@ -47,5 +47,7 @@
   "045_biz_performance_permissions": "8680ab40e73fac0744da9456ca8153509eaf24323e87e11e18e941e3b1aab1e4",
   "046_maintenance_data_write": "77a4d6afb07fef490d53ad6657877b49d609c02fd70a15c4441883b4c55cb471",
   "047_revoke_contract_manager_cost": "7eddc0ed611cd98049e98bc12660f507e987a65c73a2b5c31999f4f69e239310",
-  "048_biz_user_preferences": "fdc1cdf064a15eb0a9d2371a4d4ed79ff1437eacc5a7f91b7b99a36a4cfd3223"
+  "048_biz_user_preferences": "fdc1cdf064a15eb0a9d2371a4d4ed79ff1437eacc5a7f91b7b99a36a4cfd3223",
+  "049_biz_permission_metadata": "5f1e9d3403dafbdf26bc434e9139723483200a84f0585b6bfa438e34ad676632",
+  "050_assistant_import_permission": "b7d1257197a068b44663cd035ab118683488014a58bc1bbe275a62e6f08fa95d"
 }

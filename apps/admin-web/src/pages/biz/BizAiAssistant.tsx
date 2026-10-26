@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, Table, Tooltip, message as antdMessage } from 'antd';
+import { Button, Input, Space, Table, Tooltip, message as antdMessage } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  ClearOutlined, DislikeOutlined, LikeOutlined, RobotOutlined, SendOutlined,
+  ClearOutlined, DislikeOutlined, LikeOutlined, RobotOutlined, SendOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import * as aiApi from '@/api/ai.api';
+import BizAiImportPanel from './BizAiImportPanel';
 import './BizAiAssistant.css';
 
 /**
@@ -55,6 +56,9 @@ export default function BizAiAssistant() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [feedbackDone, setFeedbackDone] = useState<Record<number, 'up' | 'down'>>({});
   const [atBottom, setAtBottom] = useState(true);
+  const [importOpen, setImportOpen] = useState(false);
+  /** 有「批量导入」权限时后端才会返回非空清单；为空则整个入口不显示 */
+  const [importTypeCount, setImportTypeCount] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const seq = useRef(0);
@@ -62,6 +66,8 @@ export default function BizAiAssistant() {
   useEffect(() => {
     // 功能清单只用于空态推荐，失败不阻塞提问
     void aiApi.aiIntents().then((data) => setIntents(data.items)).catch(() => undefined);
+    // 导入类型用于决定是否显示「批量导入」入口，失败按无权限处理
+    void aiApi.aiImportTypes().then((data) => setImportTypeCount(data.items.length)).catch(() => undefined);
   }, []);
 
   const suggestions = useMemo(() => {
@@ -178,9 +184,14 @@ export default function BizAiAssistant() {
           <strong>智能助手</strong>
           <span>按预置规则查数，不经过大模型；可见范围由账号权限决定</span>
         </div>
-        {messages.length > 0 && (
-          <Button size="small" icon={<ClearOutlined />} onClick={clearAll}>清空对话</Button>
-        )}
+        <Space size={8}>
+          {importTypeCount > 0 && (
+            <Button size="small" icon={<UploadOutlined />} onClick={() => setImportOpen(true)}>批量导入</Button>
+          )}
+          {messages.length > 0 && (
+            <Button size="small" icon={<ClearOutlined />} onClick={clearAll}>清空对话</Button>
+          )}
+        </Space>
       </div>
 
       <div className="ai-chat__scroll" ref={scrollRef} onScroll={handleScroll}>
@@ -240,6 +251,8 @@ export default function BizAiAssistant() {
         </div>
         <div className="ai-chat__hint">Enter 发送 · Shift + Enter 换行 · 刷新后对话清空</div>
       </div>
+
+      <BizAiImportPanel open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }

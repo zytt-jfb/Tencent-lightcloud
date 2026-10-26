@@ -13,3 +13,11 @@
  */
 export { BizPermissionCode } from '@biz-reporting/shared-types';
 export type { BizPermissionCodeValue } from '@biz-reporting/shared-types';
+
+/**
+ * 门户域：模块入口判定的唯一维度。
+ * 前端不再自己按 pathname 猜「该模块要不要 portal.*.enter」，
+ * 而是拿后端 /biz/auth/me 返回的 modules 直接比对。
+ */
+export { PortalDomain } from '@biz-reporting/shared-types';
+export type { PortalDomainValue } from '@biz-reporting/shared-types';

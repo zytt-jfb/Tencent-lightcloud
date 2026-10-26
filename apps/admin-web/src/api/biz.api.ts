@@ -29,6 +29,8 @@ export interface BizMeResult {
   cityId: string | null;
   sensitiveOrderScope: string;
   permissions: string[];
+  /** 门户域集合（engineering / maintenance / operation / system / assistant），模块入口判定用 */
+  modules: string[];
   dataScope: { scopeType: string; provinceIds: string[]; cityIds: string[]; cityId: string | null };
 }
 

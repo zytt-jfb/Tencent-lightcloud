@@ -98,11 +98,28 @@ export const BizPermissionCode = {
   OPERATION_SETTINGS_READ: 'operation.settings.read',
   OPERATION_SETTINGS_MANAGE: 'operation.settings.manage',
   OPERATION_REGION_MANAGE: 'operation.region.manage',
+  /**
+   * 数据删除台账（超级管理员的数据删除页）。
+   * 原先 /api/biz/admin/data/* 只靠 biz-auth.guard 的「路径前缀 → portal.system.enter」兜底，
+   * 端点本身没有任何权限声明；补这两个码把保护从「猜路径」变成「显式声明」。
+   */
+  SYSTEM_DATA_READ: 'system.data.read',
+  SYSTEM_DATA_DELETE: 'system.data.delete',
   // 消息与公告
   OPERATION_MESSAGE_READ: 'operation.message.read',
   OPERATION_ANNOUNCEMENT_CREATE: 'operation.announcement.create',
   OPERATION_ANNOUNCEMENT_PUBLISH: 'operation.announcement.publish',
   OPERATION_ANNOUNCEMENT_MANAGE: 'operation.announcement.manage',
+  /**
+   * 智能助手批量导入（人员 / 车辆 / 油机 / 各模块台账）。
+   *
+   * 为什么单独一个码、且默认不授予任何角色：
+   *   批量导入一次能写入成百上千行，破坏力远大于单条新增；如果只按模块写权限放行，
+   *   任何能编辑一条记录的人都能在 AI 入口批量覆盖整张表。所以把「能不能用批量导入」
+   *   独立成一个开关，由 admin 逐个账号授权。
+   *   判定是双闸：本码 AND 目标模块的写权限（见 MaintenanceBatchImportService）。
+   */
+  ASSISTANT_IMPORT_EXECUTE: 'assistant.import.execute',
 } as const;
 export type BizPermissionCodeValue = (typeof BizPermissionCode)[keyof typeof BizPermissionCode];
 
@@ -232,3 +249,155 @@ export const ROLE_DEFAULT_PERMISSIONS: Readonly<Record<string, readonly string[]
 
 /** 敏感订单数据权限开关（基线 01 §10.3：有权限导出完整值，其他脱敏） */
 export const SENSITIVE_ORDER_PERMISSION = 'operation.order.sensitive_full';
+
+// ============================================================
+// 门户域（portal domain）—— 模块入口判定的唯一维度
+// ============================================================
+
+/**
+ * 为什么需要「域」这一层，而不是直接用权限码前缀切模块：
+ *   现有码里 `operation.*` 横跨两个模块 —— operation.contract.read 属于经营管理，
+ *   operation.user.manage 属于系统设置；`maintenance.operation.enter` 名字带 maintenance，
+ *   语义却是「经营管理模块入口」。按字符串前缀推导一定判错。
+ *   所以把归属写死成一张显式表，前后端共用同一份，谁也不再各写一套。
+ *
+ * 与 `portal.*.enter` 的关系：
+ *   那四个入口码是历史产物（「有这个模块里任意一个能力」的重复表达）。
+ *   本表暂时把它们也收进来，是为了让改造期「现在能进的，改后仍然能进」；
+ *   等权限码统一改名时这四个码会消失，届时删掉对应行即可，判定逻辑不用动。
+ */
+export const PortalDomain = {
+  ENGINEERING: 'engineering',
+  MAINTENANCE: 'maintenance',
+  OPERATION: 'operation',
+  SYSTEM: 'system',
+  /** 智能助手不设入口门槛：登录即可进，能查什么由后端按意图权限与数据范围决定 */
+  ASSISTANT: 'assistant',
+} as const;
+export type PortalDomainValue = (typeof PortalDomain)[keyof typeof PortalDomain];
+
+/** 每个域下有哪些权限码（一个码只能属于一个域，启动时由 assertDomainCatalogIntegrity 校验） */
+export const DOMAIN_PERMISSIONS: Readonly<Record<PortalDomainValue, readonly string[]>> = {
+  engineering: [
+    BizPermissionCode.PORTAL_ENGINEERING_ENTER,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_READ,
+    BizPermissionCode.ASSESSMENT_OVERVIEW_EXPORT,
+    BizPermissionCode.ASSESSMENT_IMPORT_READ,
+    BizPermissionCode.ASSESSMENT_IMPORT_UPLOAD,
+    BizPermissionCode.ASSESSMENT_IMPORT_DELETE,
+    BizPermissionCode.ASSESSMENT_ENTRY_READ,
+    BizPermissionCode.ASSESSMENT_ENTRY_CREATE,
+    BizPermissionCode.ASSESSMENT_ENTRY_SUBMIT,
+    BizPermissionCode.ASSESSMENT_ENTRY_RETURN,
+  ],
+  maintenance: [
+    BizPermissionCode.PORTAL_MAINTENANCE_ENTER,
+    BizPermissionCode.MAINTENANCE_OPERATION_ENTER,
+    BizPermissionCode.MAINTENANCE_ASSET_ENTER,
+    BizPermissionCode.MAINTENANCE_PERSONNEL_ENTER,
+    BizPermissionCode.MAINTENANCE_DATA_DELETE,
+    BizPermissionCode.MAINTENANCE_DATA_WRITE,
+    BizPermissionCode.MAINTENANCE_SENSITIVE_READ,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_READ,
+    BizPermissionCode.PERFORMANCE_OVERVIEW_EXPORT,
+    BizPermissionCode.PERFORMANCE_UPLOAD_READ,
+    BizPermissionCode.PERFORMANCE_UPLOAD_CREATE,
+  ],
+  operation: [
+    BizPermissionCode.OPERATION_HOME_READ,
+    BizPermissionCode.OPERATION_ANALYSIS_READ,
+    BizPermissionCode.OPERATION_CONTRACT_READ,
+    BizPermissionCode.OPERATION_CONTRACT_CREATE,
+    BizPermissionCode.OPERATION_CONTRACT_UPDATE,
+    BizPermissionCode.OPERATION_CONTRACT_VOID,
+    BizPermissionCode.OPERATION_CONTRACT_DELETE,
+    BizPermissionCode.OPERATION_CONTRACT_BATCH_READ,
+    BizPermissionCode.OPERATION_CONTRACT_BATCH_CREATE,
+    BizPermissionCode.OPERATION_CONTRACT_BATCH_UPDATE,
+    BizPermissionCode.OPERATION_CONTRACT_BATCH_DELETE,
+    BizPermissionCode.OPERATION_CONTRACT_RESTORE,
+    BizPermissionCode.OPERATION_CONTRACT_ALLOCATE,
+    BizPermissionCode.OPERATION_CONTRACT_ALLOCATE_CANCEL,
+    BizPermissionCode.OPERATION_CONTRACT_RATE,
+    BizPermissionCode.OPERATION_CONTRACT_EXPORT,
+    BizPermissionCode.OPERATION_ORDER_READ,
+    BizPermissionCode.OPERATION_ORDER_UPLOAD,
+    BizPermissionCode.OPERATION_ORDER_BATCH_VOID,
+    BizPermissionCode.OPERATION_ORDER_BATCH_RESTORE,
+    BizPermissionCode.OPERATION_ORDER_EXPORT,
+    BizPermissionCode.OPERATION_COMPLETION_READ,
+    BizPermissionCode.OPERATION_COMPLETION_CREATE,
+    BizPermissionCode.OPERATION_COMPLETION_SUBMIT,
+    BizPermissionCode.OPERATION_COMPLETION_APPROVE,
+    BizPermissionCode.OPERATION_COMPLETION_REJECT,
+    BizPermissionCode.OPERATION_COMPLETION_VOID,
+    BizPermissionCode.OPERATION_COMPLETION_EXPORT,
+    BizPermissionCode.OPERATION_COST_READ,
+    BizPermissionCode.OPERATION_COST_CREATE,
+    BizPermissionCode.OPERATION_COST_SUBMIT,
+    BizPermissionCode.OPERATION_COST_APPROVE,
+    BizPermissionCode.OPERATION_COST_REJECT,
+    BizPermissionCode.OPERATION_COST_VOID,
+    BizPermissionCode.OPERATION_COST_EXPORT,
+    SENSITIVE_ORDER_PERMISSION,
+    /**
+     * 消息中心刻意归「经营管理」，不归「系统设置」。
+     * 消息是全员功能（contract_manager 也有），而「系统设置」是管理岗才该进的模块；
+     * 若把 message.read 放进 system 域，任何能看消息的账号都会拿到系统设置入口。
+     * 前端 /biz/messages 本身不设模块门槛，这里的归属只影响域聚合，不会让消息页变难进。
+     */
+    BizPermissionCode.OPERATION_MESSAGE_READ,
+  ],
+  system: [
+    BizPermissionCode.PORTAL_SYSTEM_ENTER,
+    BizPermissionCode.OPERATION_USER_MANAGE,
+    BizPermissionCode.OPERATION_ROLE_MANAGE,
+    BizPermissionCode.OPERATION_MODULE_MANAGE,
+    BizPermissionCode.OPERATION_SETTINGS_READ,
+    BizPermissionCode.OPERATION_SETTINGS_MANAGE,
+    BizPermissionCode.OPERATION_REGION_MANAGE,
+    BizPermissionCode.OPERATION_ANNOUNCEMENT_CREATE,
+    BizPermissionCode.OPERATION_ANNOUNCEMENT_PUBLISH,
+    BizPermissionCode.OPERATION_ANNOUNCEMENT_MANAGE,
+    BizPermissionCode.SYSTEM_DATA_READ,
+    BizPermissionCode.SYSTEM_DATA_DELETE,
+  ],
+  assistant: [BizPermissionCode.ASSISTANT_IMPORT_EXECUTE],
+};
+
+const DOMAIN_OF_PERMISSION: ReadonlyMap<string, PortalDomainValue> = new Map(
+  (Object.entries(DOMAIN_PERMISSIONS) as Array<[PortalDomainValue, readonly string[]]>)
+    .flatMap(([domain, codes]) => codes.map((code) => [code, domain] as const)),
+);
+
+/** 单个权限码属于哪个域；未登记的码返回 null（启动自检会把它当问题报出来） */
+export function domainOfPermission(code: string): PortalDomainValue | null {
+  return DOMAIN_OF_PERMISSION.get(code) ?? null;
+}
+
+/** 把一组权限码聚合成域集合：后端 BizAuthContext.modulePermissions 就是它的产物 */
+export function domainsOfPermissions(codes: Iterable<string>): Set<PortalDomainValue> {
+  const domains = new Set<PortalDomainValue>();
+  for (const code of codes) {
+    const domain = DOMAIN_OF_PERMISSION.get(code);
+    if (domain) domains.add(domain);
+  }
+  return domains;
+}
+
+/**
+ * 目录自检：同一个权限码不允许出现在两个域里。
+ * 返回冲突描述数组，空数组表示健康。服务启动时调用一次，把配置错误暴露在日志里。
+ */
+export function assertDomainCatalogIntegrity(): string[] {
+  const seen = new Map<string, PortalDomainValue>();
+  const problems: string[] = [];
+  for (const [domain, codes] of Object.entries(DOMAIN_PERMISSIONS) as Array<[PortalDomainValue, readonly string[]]>) {
+    for (const code of codes) {
+      const previous = seen.get(code);
+      if (previous && previous !== domain) problems.push(`${code}: ${previous} 与 ${domain} 重复登记`);
+      else seen.set(code, domain);
+    }
+  }
+  return problems;
+}

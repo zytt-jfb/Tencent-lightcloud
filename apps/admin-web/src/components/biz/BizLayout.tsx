@@ -1,4 +1,4 @@
-import { BizPermissionCode } from '@/utils/biz-permission-code';
+import { BizPermissionCode, PortalDomain, type PortalDomainValue } from '@/utils/biz-permission-code';
 import { useCallback, useEffect, useState } from 'react';
 import { Avatar, Button, Drawer, Dropdown, Form, Input, Layout, Menu, Modal, Result, Space, Spin, Typography, message, type MenuProps } from 'antd';
 import {
@@ -78,7 +78,7 @@ function toMenuItem(leaf: NavLeaf): { key: string; label: string; icon?: React.R
 export default function BizLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [me, setMe] = useState<{ username: string; roleCode: string; permissions: string[] } | null>(null);
+  const [me, setMe] = useState<{ username: string; roleCode: string; permissions: string[]; modules: string[] } | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -236,10 +236,18 @@ export default function BizLayout() {
 
   if (isModulePortal) return <Outlet />;
   if (!me) return <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>;
-  const modulePermission = isSystemModule ? BizPermissionCode.PORTAL_SYSTEM_ENTER : isEngineeringModule ? BizPermissionCode.PORTAL_ENGINEERING_ENTER : isMaintenanceModule ? BizPermissionCode.PORTAL_MAINTENANCE_ENTER
-    : location.pathname === '/biz/placeholder/engineering' ? BizPermissionCode.PORTAL_ENGINEERING_ENTER
-      : /^\/biz\/(operation|analysis|contract-overview|fee-rates|orders|offline-completions|costs)(\/|$)/.test(location.pathname) ? BizPermissionCode.MAINTENANCE_OPERATION_ENTER : undefined;
-  if (me && modulePermission && !isSuper && !permSet.has(modulePermission)) {
+  /**
+   * 模块入口判定：只看「当前路径属于哪个域」+「后端下发的 modules」。
+   * 不再逐个判断 portal.*.enter —— 那套入口码是「有模块内任意能力」的重复表达，
+   * 前后端各写一遍必然漂移（历史上多次出现「菜单里能看到、点进去 403」）。
+   * 智能助手与工作台不设门槛，currentDomain 为 null 时直接放行。
+   */
+  const currentDomain: PortalDomainValue | null = isSystemModule ? PortalDomain.SYSTEM
+    : isEngineeringModule ? PortalDomain.ENGINEERING
+      : isMaintenanceModule ? PortalDomain.MAINTENANCE
+        : /^\/biz\/(operation|analysis|contract-overview|fee-rates|orders|offline-completions|costs)(\/|$)/.test(location.pathname) ? PortalDomain.OPERATION
+          : null;
+  if (currentDomain && !isSuper && !(me.modules ?? []).includes(currentDomain)) {
     return <Result status="403" title="没有访问该模块的权限" extra={<Button onClick={() => navigate('/biz/portal')}>返回工作台</Button>} />;
   }
 

@@ -1,7 +1,13 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { PlatformRole } from '@biz-reporting/shared-types';
+import {
+  PlatformRole,
+  PortalDomain,
+  assertDomainCatalogIntegrity,
+  domainsOfPermissions,
+  type PortalDomainValue,
+} from '@biz-reporting/shared-types';
 import { PlatformUserEntity } from './platform-user.entity';
 import { RoleEntity } from './role.entity';
 import { RolePermissionEntity } from './role-permission.entity';
@@ -43,6 +49,12 @@ export interface BizAuthContext {
   sensitiveOrderScope: string;
   /** 权限码集合；isSuperAdmin=true 时忽略（通配 ALL） */
   permissionCodes: Set<string>;
+  /**
+   * 权限码按「门户域」聚合后的结果（engineering / maintenance / operation / system / assistant）。
+   * 模块入口只看它，不再看 portal.*.enter —— 一处判定，前后端同源。
+   * super_admin 拥有全部域。
+   */
+  modulePermissions: Set<PortalDomainValue>;
   isSuperAdmin: boolean;
   dataScope: ResolvedDataScope;
 }
@@ -54,6 +66,7 @@ export interface BizAuthContext {
  */
 @Injectable()
 export class RbacService {
+  private readonly logger = new Logger(RbacService.name);
   /** 权限上下文短期缓存：键 `userId:authVersion`，任何权限/角色/范围/密码变更都会换键 */
   private readonly contextCache = new Map<string, { context: BizAuthContext; expiresAt: number }>();
   private static readonly AUTH_CONTEXT_CACHE_MS = 5_000;
@@ -79,7 +92,14 @@ export class RbacService {
     @InjectRepository(ProvinceEntity)
     private readonly provinceRepo: Repository<ProvinceEntity>,
     private readonly accessScope: AccessScopeService,
-  ) {}
+  ) {
+    // 目录自检：同一个权限码被登记到两个域，模块入口就会随时序漂移。
+    // 放在启动期报，而不是等用户「点进去莫名其妙 403」时才发现。
+    const problems = assertDomainCatalogIntegrity();
+    if (problems.length > 0) {
+      this.logger.error(`PERMISSION_DOMAIN_CATALOG_INVALID ${problems.join(' | ')}`);
+    }
+  }
 
   /**
    * 加载用户完整权限上下文（角色默认 + 账号例外合并）。
@@ -98,7 +118,11 @@ export class RbacService {
     const cached = this.contextCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       // 返回浅拷贝 + 新的 Set：多个并发请求不能共享同一个可变 Set 实例
-      return { ...cached.context, permissionCodes: new Set(cached.context.permissionCodes) };
+      return {
+        ...cached.context,
+        permissionCodes: new Set(cached.context.permissionCodes),
+        modulePermissions: new Set(cached.context.modulePermissions),
+      };
     }
 
     const context = await this.buildAuthContext(user, userId);
@@ -107,7 +131,11 @@ export class RbacService {
       this.contextCache.clear();
     }
     this.contextCache.set(cacheKey, { context, expiresAt: Date.now() + RbacService.AUTH_CONTEXT_CACHE_MS });
-    return { ...context, permissionCodes: new Set(context.permissionCodes) };
+    return {
+      ...context,
+      permissionCodes: new Set(context.permissionCodes),
+      modulePermissions: new Set(context.modulePermissions),
+    };
   }
 
   private async buildAuthContext(user: PlatformUserEntity, userId: string): Promise<BizAuthContext> {
@@ -143,6 +171,10 @@ export class RbacService {
       authVersion: user.authVersion,
       sensitiveOrderScope: user.sensitiveOrderScope,
       permissionCodes,
+      // 模块入口的唯一依据：超管全放行，其余按目录里声明的归属聚合
+      modulePermissions: isSuperAdmin
+        ? new Set<PortalDomainValue>(Object.values(PortalDomain))
+        : domainsOfPermissions(permissionCodes),
       isSuperAdmin,
       dataScope,
     };
@@ -152,6 +184,16 @@ export class RbacService {
   assertPermission(ctx: BizAuthContext, code: string): void {
     if (ctx.isSuperAdmin || ctx.permissionCodes.has(code)) return;
     throw new ForbiddenException('权限不足');
+  }
+
+  /**
+   * 模块入口判定（替代原先散落的 portal.*.enter 判断）。
+   * 语义：拥有该模块下任意一个权限，即可进入该模块。
+   * 智能助手不设门槛，登录即可。
+   */
+  canEnterModule(ctx: BizAuthContext, domain: PortalDomainValue): boolean {
+    if (domain === PortalDomain.ASSISTANT) return true;
+    return ctx.isSuperAdmin || ctx.modulePermissions.has(domain);
   }
 
   /** 解析数据范围（基线 02 §5：范围来源固定，不信任请求参数） */

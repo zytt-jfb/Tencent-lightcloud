@@ -11,6 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Inject } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { BizPermissionCode } from '@biz-reporting/shared-types';
 import type { BizAuthContext } from '../rbac/rbac.service';
 import { AI_SEMAPHORE_TOKEN, AiBusyError, Semaphore } from './concurrency/semaphore';
 import { AiChatDto, AiFeedbackDto, AiReportDto } from './dto/ai-chat.dto';
@@ -167,6 +168,80 @@ export class AiService {
   /** 当前账号可用的功能清单 */
   intents(auth: BizAuthContext): { items: GuideItem[]; rejected: Array<{ id: string; reason: string }> } {
     return { items: this.registry.guideFor(auth), rejected: [...this.registry.rejectedIntents] };
+  }
+
+  /**
+   * 批量导入类型清单（AI 助手里的统一导入入口）
+   *
+   * 只做「清单 + 权限过滤」，不做转发：
+   *   真正的写入仍由各模块自己的接口完成 —— 那边有事务、批次血缘、行级范围校验，
+   *   在 AI 层复制一遍只会多出一套会漂移的实现。
+   *
+   * 双闸：
+   *   1. 没有 assistant.import.execute → 返回空清单，前端连入口都不显示；
+   *   2. 有开关但缺某模块写权限 → 只隐藏那一项，不影响其它。
+   *
+   * mode 决定前端交互：
+   *   direct          —— 选文件后一次提交即完成（合同/订单/绩效）
+   *   preview-commit  —— 先预检拿统计与错误行，确认后再提交（后评估/人员/车辆/油机）
+   */
+  importTypes(auth: BizAuthContext): { items: Array<Record<string, unknown>> } {
+    const allowed = (code: string): boolean => auth.isSuperAdmin || auth.permissionCodes.has(code);
+    if (!allowed(BizPermissionCode.ASSISTANT_IMPORT_EXECUTE)) return { items: [] };
+
+    const catalog: Array<Record<string, unknown> & { writePermission: string }> = [
+      {
+        key: 'contracts', name: '合同台账', group: '经营管理', mode: 'direct',
+        endpoint: '/biz/contracts/upload', accept: '.xlsx',
+        writePermission: BizPermissionCode.OPERATION_CONTRACT_CREATE,
+        hint: '单工作表；必填列：合同编号、合同名称、含税合同额、所属省份',
+      },
+      {
+        key: 'orders', name: '订单', group: '经营管理', mode: 'direct',
+        endpoint: '/biz/orders/upload', accept: '.xlsx',
+        writePermission: BizPermissionCode.OPERATION_ORDER_UPLOAD,
+        hint: '超大文件请到订单页用分片上传',
+      },
+      {
+        key: 'performance', name: '月度考核', group: '维护管理', mode: 'direct',
+        endpoint: '/biz/performance/upload', accept: '.xlsx',
+        writePermission: BizPermissionCode.PERFORMANCE_UPLOAD_CREATE,
+        hint: '只能有一个明细 Sheet',
+      },
+      {
+        key: 'assessment', name: '后评估数据', group: '工程管理', mode: 'preview-commit',
+        previewEndpoint: '/biz/assessment/import/preview', commitEndpoint: '/biz/assessment/import', accept: '.xlsx',
+        writePermission: BizPermissionCode.ASSESSMENT_IMPORT_UPLOAD,
+        hint: '先预检再提交，重复行会单独计数',
+      },
+      {
+        key: 'personnel', name: '人员', group: '维护管理', mode: 'preview-commit',
+        previewEndpoint: '/biz/maintenance/personnel/import/preview', commitEndpoint: '/biz/maintenance/personnel/import',
+        templateEndpoint: '/biz/maintenance/personnel/import/template', accept: '.xlsx',
+        writePermission: BizPermissionCode.MAINTENANCE_DATA_WRITE,
+        hint: '判重键：人员编号 + 所属公司 + 所属区域；列名对不上的列会被忽略',
+      },
+      {
+        key: 'vehicles', name: '车辆', group: '维护管理', mode: 'preview-commit',
+        previewEndpoint: '/biz/maintenance/vehicles/import/preview', commitEndpoint: '/biz/maintenance/vehicles/import',
+        templateEndpoint: '/biz/maintenance/vehicles/import/template', accept: '.xlsx',
+        writePermission: BizPermissionCode.MAINTENANCE_DATA_WRITE,
+        hint: '判重键：车牌号 + 所属公司 + 所属区域',
+      },
+      {
+        key: 'generators', name: '油机', group: '维护管理', mode: 'preview-commit',
+        previewEndpoint: '/biz/maintenance/generators/import/preview', commitEndpoint: '/biz/maintenance/generators/import',
+        templateEndpoint: '/biz/maintenance/generators/import/template', accept: '.xlsx',
+        writePermission: BizPermissionCode.MAINTENANCE_DATA_WRITE,
+        hint: '判重键：油机编号 + 所属公司 + 所属区域',
+      },
+    ];
+
+    return {
+      items: catalog
+        .filter((item) => allowed(item.writePermission))
+        .map(({ writePermission: _writePermission, ...rest }) => rest),
+    };
   }
 
   feedback(auth: BizAuthContext, dto: AiFeedbackDto): { ok: boolean } {

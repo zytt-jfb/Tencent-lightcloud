@@ -1,4 +1,4 @@
-import request from '@/utils/request';
+import request, { getBlob, postForm } from '@/utils/request';
 
 export type AiTool = 'business_summary' | 'import_anomalies';
 
@@ -87,4 +87,59 @@ export function aiFeedback(eventId: number, feedback: 'up' | 'down', note?: stri
 /** 组件自检（仅超管） */
 export function aiStatus(): Promise<Record<string, unknown>> {
   return request.get('/biz/ai/status');
+}
+
+// ============================================================================
+// 批量导入（AI 助手统一入口）
+// 真正落库仍由各模块自己的接口完成，这里只做「清单 + 上传」两件事
+// ============================================================================
+
+export interface AiImportType {
+  key: string;
+  name: string;
+  group: string;
+  /** direct=选完文件提交即完成；preview-commit=先预检看统计，确认后再提交 */
+  mode: 'direct' | 'preview-commit';
+  endpoint?: string;
+  previewEndpoint?: string;
+  commitEndpoint?: string;
+  templateEndpoint?: string;
+  accept?: string;
+  hint?: string;
+}
+
+export interface AiImportPreviewShape {
+  kind?: string;
+  label?: string;
+  totalRows?: number;
+  createCount?: number;
+  updateCount?: number;
+  reviveCount?: number;
+  errorCount?: number;
+  ignoredColumns?: string[];
+  matchedColumns?: Array<{ column: string; field: string; label: string }>;
+  missingRequiredColumns?: string[];
+  issues?: Array<{ rowNo: number; message: string }>;
+  created?: number;
+  updated?: number;
+  revived?: number;
+  /** 本次导入批次号（同时写进审计日志） */
+  batchId?: string;
+}
+
+/** 当前账号可用的导入类型（后端已按双闸过滤，无权的不会返回） */
+export function aiImportTypes(): Promise<{ items: AiImportType[] }> {
+  return request.get('/biz/ai/import-types');
+}
+
+/** 统一上传：目标地址来自清单，既有模块接口与新维护导入接口共用这一个封装 */
+export function aiImportUpload(url: string, file: File): Promise<Record<string, unknown>> {
+  const form = new FormData();
+  form.append('file', file);
+  return postForm<Record<string, unknown>>(url, form);
+}
+
+/** 下载导入模板（要带 token，走 blob 而不是直接 window.open） */
+export function aiImportTemplate(url: string): Promise<Blob> {
+  return getBlob(url);
 }
