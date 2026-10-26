@@ -164,6 +164,92 @@ export class FlywheelService {
     }
   }
 
+  /**
+   * 运营洞察：飞轮真正产生价值的地方。
+   *
+   * 光记日志没用，得能回答三个问题：
+   *   1. 用户问了什么但没答上来（notMatchedTop）→ 决定补哪些关键词/工具；
+   *   2. 哪类失败最多（byStatus / errorTop）→ 决定修哪条链路；
+   *   3. 规则和大模型各自扛了多少（bySource）→ 决定模型值不值得继续开。
+   *
+   * 未命中问句按原文聚合计数：重复出现的才是真需求，偶发一次的多半是误触。
+   */
+  insights(days = 30): {
+    windowDays: number;
+    total: number;
+    matchedRate: number;
+    byStatus: Array<{ status: string; count: number }>;
+    bySource: Array<{ source: string; count: number }>;
+    notMatchedTop: Array<{ input: string; count: number; lastTs: string }>;
+    errorTop: Array<{ code: string; count: number }>;
+    feedback: { up: number; down: number; rate: number };
+  } {
+    const empty = {
+      windowDays: days,
+      total: 0,
+      matchedRate: 0,
+      byStatus: [],
+      bySource: [],
+      notMatchedTop: [],
+      errorTop: [],
+      feedback: { up: 0, down: 0, rate: 0 },
+    };
+    try {
+      const db = this.sqlite.get();
+      const since = new Date(Date.now() - days * 86_400_000).toISOString();
+      const group = (column: string): Array<{ key: string | null; count: number }> =>
+        db
+          .prepare(`SELECT ${column} AS key, COUNT(*) AS count FROM ai_events WHERE ts >= ? GROUP BY ${column} ORDER BY count DESC`)
+          .all(since) as Array<{ key: string | null; count: number }>;
+
+      const status = group('status');
+      const source = group('intent_source');
+      const total = status.reduce((sum, row) => sum + Number(row.count), 0);
+      const okCount = Number(status.find((row) => row.key === 'ok')?.count ?? 0);
+
+      const notMatched = db
+        .prepare(
+          `SELECT raw_input AS input, COUNT(*) AS count, MAX(ts) AS last_ts
+           FROM ai_events
+           WHERE ts >= ? AND status = 'not_matched' AND raw_input IS NOT NULL AND TRIM(raw_input) <> ''
+           GROUP BY raw_input ORDER BY count DESC, last_ts DESC LIMIT 30`,
+        )
+        .all(since) as Array<{ input: string; count: number; last_ts: string }>;
+
+      const errors = db
+        .prepare(
+          `SELECT error_code AS code, COUNT(*) AS count
+           FROM ai_events
+           WHERE ts >= ? AND error_code IS NOT NULL AND error_code <> ''
+           GROUP BY error_code ORDER BY count DESC LIMIT 20`,
+        )
+        .all(since) as Array<{ code: string; count: number }>;
+
+      const votes = db
+        .prepare(
+          `SELECT feedback AS key, COUNT(*) AS count
+           FROM ai_events WHERE ts >= ? AND feedback IS NOT NULL GROUP BY feedback`,
+        )
+        .all(since) as Array<{ key: string | null; count: number }>;
+      const up = Number(votes.find((row) => row.key === 'up')?.count ?? 0);
+      const down = Number(votes.find((row) => row.key === 'down')?.count ?? 0);
+
+      return {
+        windowDays: days,
+        total,
+        matchedRate: total > 0 ? Math.round((okCount / total) * 1000) / 10 : 0,
+        byStatus: status.map((row) => ({ status: row.key ?? '(空)', count: Number(row.count) })),
+        bySource: source.map((row) => ({ source: row.key ?? '(空)', count: Number(row.count) })),
+        notMatchedTop: notMatched.map((row) => ({ input: row.input, count: Number(row.count), lastTs: row.last_ts })),
+        errorTop: errors.map((row) => ({ code: row.code, count: Number(row.count) })),
+        feedback: { up, down, rate: up + down > 0 ? Math.round((up / (up + down)) * 1000) / 10 : 0 },
+      };
+    } catch (error) {
+      this.logger.warn(`AI_FLYWHEEL_INSIGHTS_FAILED message=${error instanceof Error ? error.message : String(error)}`);
+      return empty;
+    }
+  }
+
   recent(limit = 20): AiEventRow[] {
     try {
       const db = this.sqlite.get();

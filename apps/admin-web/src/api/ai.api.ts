@@ -25,8 +25,10 @@ export interface AiChatMeta {
   rowCount: number;
   latencyMs: number;
   truncated: boolean;
-  intentSource: 'rule' | 'qa' | 'guide';
+  intentSource: 'rule' | 'qa' | 'llm' | 'guide';
   scopeLabel: string;
+  /** 范围降级说明；有值时应在结果里提示用户 */
+  scopeNotice?: string | null;
   llmEnabled: boolean;
 }
 

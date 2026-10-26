@@ -5,6 +5,7 @@ import { AnnualPackageEntity } from '../packages/annual-package.entity';
 import { MonthSnapshotEntity } from '../packages/month-snapshot.entity';
 import { ImportJobEntity } from '../ws6/import-job.entity';
 import { CityEntity } from '../main-data/city.entity';
+import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { AiReadonlyController } from './ai-readonly.controller';
 import { AiReadonlyService } from './ai-readonly.service';
 import { AiController } from './ai.controller';
@@ -12,6 +13,8 @@ import { AiService } from './ai.service';
 import { ScopeGuardService } from './auth/scope-guard.service';
 import { AI_SEMAPHORE_TOKEN, Semaphore, parseConcurrency } from './concurrency/semaphore';
 import { FlywheelService } from './flywheel/flywheel.service';
+import { MaintenanceExpiryHandler } from './handlers/maintenance-expiry.handler';
+import { IntentRouterService } from './llm/intent-router.service';
 import { IntentRegistry } from './intents/intent-registry';
 import { LlmClientService } from './llm/llm-client.service';
 import { RagService } from './rag/rag.service';
@@ -36,6 +39,9 @@ import { SqliteStore } from './sql/sqlite.store';
 @Module({
   imports: [
     TypeOrmModule.forFeature([AnnualPackageEntity, MonthSnapshotEntity, ImportJobEntity, CityEntity]),
+    // 到期清单这类工具必须复用维护模块的判定口径（VARCHAR 脏日期只能在应用层解析），
+    // 所以 AI 模块依赖 MaintenanceModule。单向依赖：维护模块不认识 AI。
+    MaintenanceModule,
   ],
   controllers: [AiReadonlyController, AiController],
   providers: [
@@ -49,6 +55,8 @@ import { SqliteStore } from './sql/sqlite.store';
     FlywheelService,
     RagService,
     LlmClientService,
+    IntentRouterService,
+    MaintenanceExpiryHandler,
     AiService,
     {
       // 并发上限来自 MAX_CONCURRENCY；用工厂 provider 而不是在 Semaphore 内部读 env，

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { LlmDisabledError, type LlmMessage, type LlmProvider } from './llm-provider.interface';
+import { LlmDisabledError, type LlmChatOptions, type LlmMessage, type LlmProvider } from './llm-provider.interface';
 
 /**
  * 禁用态替身
@@ -13,7 +13,7 @@ import { LlmDisabledError, type LlmMessage, type LlmProvider } from './llm-provi
 export class NullLlmProvider implements LlmProvider {
   readonly name = 'disabled';
 
-  async chat(_messages: readonly LlmMessage[]): Promise<string> {
+  async chat(_messages: readonly LlmMessage[], _options?: LlmChatOptions): Promise<string> {
     throw new LlmDisabledError();
   }
 

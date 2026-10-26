@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Input, Space, Table, Tooltip, message as antdMessage } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  ClearOutlined, DislikeOutlined, LikeOutlined, RobotOutlined, SendOutlined, UploadOutlined,
+  ClearOutlined, DislikeOutlined, DownloadOutlined, LikeOutlined, RobotOutlined, SendOutlined, UploadOutlined,
 } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import * as aiApi from '@/api/ai.api';
+import { makeExportFileName, writeWorkbook } from '@/utils/page-export-core';
 import BizAiImportPanel from './BizAiImportPanel';
 import './BizAiAssistant.css';
 
@@ -392,6 +393,17 @@ function AssistantBody({ data, expanded, feedbackDone, onToggleDetail, onRunInte
           <span>·</span>
           <span>范围：{meta.scopeLabel}</span>
           {meta.truncated && <span style={{ color: '#c47b20' }}>· 已截断，请缩小范围</span>}
+          {meta.scopeNotice && <span style={{ color: '#c47b20' }}>· {meta.scopeNotice}</span>}
+          {rows.length > 0 && columns.length > 0 && (
+            <Button
+              size="small"
+              type="text"
+              icon={<DownloadOutlined />}
+              onClick={() => exportResult(data, rows, columns)}
+            >
+              导出
+            </Button>
+          )}
         </div>
         {meta.eventId !== null && (
           <div className="ai-chat__meta-left">
@@ -472,6 +484,51 @@ function formatCell(value: unknown, kind?: aiApi.AiColumn['kind']): string {
   }
   if (kind === 'number' && typeof value === 'number') {
     return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+  }
+  return String(value);
+}
+
+/**
+ * 导出当前结果为 xlsx。
+ *
+ * 为什么不用 utils 里的 exportPageRows：
+ *   那套是按「字段名 → 中文列名」查固定字典（FIELD_LABEL），而这里的结果列是后端按意图声明的
+ *   columns（city / avg_score 这种），字典查不到，会导出英文表头。这里直接用 columns 的 label
+ *   做表头、kind 决定数字格式，做到「看到的表 = 导出的表」。
+ */
+function exportResult(
+  data: aiApi.AiChatResponse,
+  rows: Array<Record<string, unknown>>,
+  columns: aiApi.AiColumn[],
+): void {
+  const header = columns.map((column) => column.label);
+  const moneyColumns = columns
+    .map((column, index) => (column.kind === 'money' ? index : -1))
+    .filter((index) => index >= 0);
+  const body = rows.map((row) => columns.map((column) => exportCell(row[column.key], column.kind)));
+
+  const fileName = makeExportFileName(
+    data.intentName ?? '查询结果',
+    data.meta.scopeLabel || '当前范围',
+    `${rows.length}行`,
+  );
+  writeWorkbook(fileName, [{ name: '数据', rows: [header, ...body], moneyColumns }]);
+  antdMessage.success(`已导出 ${rows.length} 行`);
+}
+
+/**
+ * 单元格取值：金额/数字写成**数值**（Excel 里能直接求和），其余写字符串。
+ *
+ * 关于公式注入：实测项目里的 xlsx 0.20.3，aoa_to_sheet 会把 "=1+1" 写成
+ * `{ v: "=1+1", t: "s" }` —— 也就是**字符串而不是公式单元**，xlsx 通道本身
+ * 不构成注入风险。反而是加单引号前缀会把这个撇号作为字面字符写进单元格，
+ * 让导出值和屏幕值不一致。所以这里原样输出。（CSV 通道才是注入风险面，此处不走 CSV。）
+ */
+function exportCell(value: unknown, kind?: aiApi.AiColumn['kind']): string | number | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (kind === 'money' || kind === 'number') {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(parsed)) return parsed;
   }
   return String(value);
 }

@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body, Controller, Delete, Get, Post, Query, UploadedFile, UseGuards, UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { BizAuthGuard } from '../biz-auth/biz-auth.guard';
 import { BizAuthUser } from '../biz-auth/biz-auth-user.decorator';
@@ -53,6 +56,12 @@ export class AiController {
     return this.service.importTypes(auth);
   }
 
+  @Get('actions')
+  @ApiOperation({ summary: 'Agent 动作清单（按账号权限过滤的写操作）' })
+  actions(@BizAuthUser() auth: BizAuthContext) {
+    return this.service.actions(auth);
+  }
+
   @Post('feedback')
   @ApiOperation({ summary: '对一次查询结果反馈（有用/没用）' })
   feedback(@BizAuthUser() auth: BizAuthContext, @Body() dto: AiFeedbackDto) {
@@ -69,5 +78,36 @@ export class AiController {
   @ApiOperation({ summary: '最近问答审计（仅超管）' })
   events(@BizAuthUser() auth: BizAuthContext, @Query() query: AiRecentQueryDto) {
     return this.service.recent(auth, query.limit ?? 20);
+  }
+
+  @Get('insights')
+  @ApiOperation({ summary: '运营洞察（仅超管）：未命中问句、错误分布、规则/模型占比' })
+  insights(@BizAuthUser() auth: BizAuthContext, @Query('days') days?: string) {
+    return this.service.insights(auth, Number(days) || 30);
+  }
+
+  // ---------------------------- 知识库（RAG） ----------------------------
+
+  @Get('knowledge/sources')
+  @ApiOperation({ summary: '知识库来源清单（仅超管）' })
+  knowledgeSources(@BizAuthUser() auth: BizAuthContext) {
+    return this.service.knowledgeSources(auth);
+  }
+
+  /**
+   * 入库：.md / .txt / .xlsx，切块后整体替换同名来源（幂等，重复上传不会重复累积）。
+   * 用 memoryStorage 而不是落盘：文件上限 10MB，直接进内存解析，避免容器里留垃圾文件。
+   */
+  @Post('knowledge/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @ApiOperation({ summary: '上传知识库文件并入库（仅超管）' })
+  knowledgeUpload(@BizAuthUser() auth: BizAuthContext, @UploadedFile() file: Express.Multer.File) {
+    return this.service.knowledgeUpload(auth, file);
+  }
+
+  @Delete('knowledge/sources')
+  @ApiOperation({ summary: '删除一个知识库来源及其全部片段（仅超管）' })
+  knowledgeDelete(@BizAuthUser() auth: BizAuthContext, @Query('sourcePath') sourcePath: string) {
+    return this.service.knowledgeDelete(auth, sourcePath);
   }
 }

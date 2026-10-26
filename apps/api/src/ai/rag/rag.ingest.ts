@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import * as XLSX from 'xlsx';
 import type { ConfigService } from '@nestjs/config';
 import { SqliteStore } from '../sql/sqlite.store';
+import { SHEET_EXTENSIONS, TEXT_EXTENSIONS, sheetFileToChunks, splitText } from './chunking';
 import { FtsLexicalBackend } from './rag.service';
 import type { ChunkInput } from './vector-backend.interface';
 
@@ -41,9 +41,6 @@ function parseArgs(argv: string[]): IngestOptions {
   return options;
 }
 
-const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt']);
-const SHEET_EXTENSIONS = new Set(['.xlsx', '.xls']);
-
 function collectFiles(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -59,85 +56,6 @@ function collectFiles(root: string): string[] {
   };
   walk(root);
   return out.sort();
-}
-
-/** 单段最大字符数：太大检索不精准，太小上下文断裂；800~1200 是经验区间 */
-const MAX_CHUNK_CHARS = 1000;
-
-/**
- * 文本切分：优先按二级标题（##），没有标题时按空行分段，再按长度合并/拆分。
- * 每个片段保留 section，回答时可以标注「出自《XX》第几节」。
- */
-export function splitText(text: string): Array<{ section: string | null; content: string }> {
-  const normalized = text.replace(/\r\n/g, '\n').trim();
-  if (!normalized) return [];
-
-  const sections: Array<{ section: string | null; body: string }> = [];
-  const lines = normalized.split('\n');
-  let currentSection: string | null = null;
-  let buffer: string[] = [];
-
-  const flush = (): void => {
-    const body = buffer.join('\n').trim();
-    if (body) sections.push({ section: currentSection, body });
-    buffer = [];
-  };
-
-  for (const line of lines) {
-    const heading = /^#{1,3}\s+(.+)$/.exec(line);
-    if (heading) {
-      flush();
-      currentSection = heading[1].trim();
-      continue;
-    }
-    buffer.push(line);
-  }
-  flush();
-
-  const chunks: Array<{ section: string | null; content: string }> = [];
-  for (const section of sections) {
-    if (section.body.length <= MAX_CHUNK_CHARS) {
-      chunks.push({ section: section.section, content: section.body });
-      continue;
-    }
-    // 超长段落按空行再切，仍超长就硬切（保证每段都有内容，不丢信息）
-    for (const piece of section.body.split(/\n{2,}/)) {
-      const trimmed = piece.trim();
-      if (!trimmed) continue;
-      if (trimmed.length <= MAX_CHUNK_CHARS) {
-        chunks.push({ section: section.section, content: trimmed });
-        continue;
-      }
-      for (let offset = 0; offset < trimmed.length; offset += MAX_CHUNK_CHARS) {
-        chunks.push({ section: section.section, content: trimmed.slice(offset, offset + MAX_CHUNK_CHARS) });
-      }
-    }
-  }
-  return chunks.filter((chunk) => chunk.content.trim().length > 20);
-}
-
-/** Excel → 文本：每个 sheet 一段（首行为表头，每 40 行一组，避免一个 sheet 变成巨型片段） */
-export function sheetToChunks(filePath: string): Array<{ section: string | null; content: string }> {
-  const workbook = XLSX.readFile(filePath);
-  const chunks: Array<{ section: string | null; content: string }> = [];
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<Array<string | number | null>>(sheet, { header: 1, blankrows: false });
-    if (rows.length === 0) continue;
-    const header = (rows[0] ?? []).map((cell) => String(cell ?? '').trim());
-    for (let start = 1; start < rows.length; start += 40) {
-      const lines: string[] = [];
-      for (const row of rows.slice(start, start + 40)) {
-        const pairs = row
-          .map((cell, index) => (cell === null || cell === undefined || cell === '' ? null : `${header[index] || `列${index + 1}`}: ${cell}`))
-          .filter(Boolean);
-        if (pairs.length > 0) lines.push(pairs.join(' | '));
-      }
-      const content = lines.join('\n').trim();
-      if (content.length > 20) chunks.push({ section: sheetName, content });
-    }
-  }
-  return chunks;
 }
 
 async function main(): Promise<void> {
@@ -173,7 +91,7 @@ async function main(): Promise<void> {
     try {
       const ext = path.extname(file).toLowerCase();
       const extracted = SHEET_EXTENSIONS.has(ext)
-        ? sheetToChunks(file)
+        ? sheetFileToChunks(file)
         : splitText(fs.readFileSync(file, 'utf8'));
       if (extracted.length === 0) {
         console.log(`SKIP ${relative} (no content)`);
@@ -202,7 +120,11 @@ async function main(): Promise<void> {
   if (failed > 0) process.exitCode = 1;
 }
 
-main().catch((error: unknown) => {
-  console.error(`INGEST_FATAL ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-  process.exitCode = 1;
-});
+// 只有直接运行（node dist/ai/rag/rag.ingest.js）才执行。
+// 被 import 时不能跑 main：否则服务进程一加载这个文件就开始解析命令行参数。
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error(`INGEST_FATAL ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+}

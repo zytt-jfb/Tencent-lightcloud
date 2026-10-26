@@ -5,6 +5,7 @@ import { LocalOllamaAdapter } from './local-ollama.adapter';
 import {
   LlmCircuitOpenError,
   LlmDisabledError,
+  type LlmChatOptions,
   type LlmMessage,
   type LlmProvider,
 } from './llm-provider.interface';
@@ -33,11 +34,14 @@ export class LlmClientService {
   private readonly provider: LlmProvider;
   private readonly enabled: boolean;
   private readonly timeoutMs: number;
+  /** 供 /ai/status 显示「到底在用哪个模型」，避免线上排查时只能猜 */
+  private readonly modelName: string;
   private consecutiveFailures = 0;
   private openedAt = 0;
 
   constructor(private readonly config: ConfigService) {
     this.enabled = String(this.config.get<string>('ENABLE_LLM') ?? 'false').toLowerCase() === 'true';
+    this.modelName = (this.config.get<string>('LLM_MODEL') ?? '').trim() || 'deepseek-flash';
     const timeout = Number.parseInt(String(this.config.get<string>('LLM_TIMEOUT_MS') ?? ''), 10);
     this.timeoutMs = Number.isFinite(timeout) && timeout > 0 ? timeout : 120_000;
 
@@ -79,6 +83,7 @@ export class LlmClientService {
   get status(): {
     enabled: boolean;
     provider: string;
+    model: string;
     circuit: 'closed' | 'open';
     consecutiveFailures: number;
     timeoutMs: number;
@@ -86,6 +91,7 @@ export class LlmClientService {
     return {
       enabled: this.enabled,
       provider: this.provider.name,
+      model: this.modelName,
       circuit: this.circuitOpen() ? 'open' : 'closed',
       consecutiveFailures: this.consecutiveFailures,
       timeoutMs: this.timeoutMs,
@@ -103,19 +109,24 @@ export class LlmClientService {
     return true;
   }
 
-  async chat(messages: readonly LlmMessage[]): Promise<string> {
+  async chat(messages: readonly LlmMessage[], options: LlmChatOptions = {}): Promise<string> {
     if (!this.enabled || this.provider instanceof NullLlmProvider) throw new LlmDisabledError();
     if (this.circuitOpen()) throw new LlmCircuitOpenError();
 
+    // 调用方可以收紧重试次数：路由失败即降级，重试三次只是把 8 秒拖成 25 秒
+    const attempts = Math.max(1, Math.min(MAX_ATTEMPTS, options.maxAttempts ?? MAX_ATTEMPTS));
     let lastError: unknown;
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const answer = await this.provider.chat(messages);
+        const answer = await this.provider.chat(messages, options);
         this.consecutiveFailures = 0;
         return answer;
       } catch (error) {
         lastError = error;
-        if (attempt < MAX_ATTEMPTS - 1) {
+        // 4xx 是「我们自己的请求写错了」（模型名不对、prompt 缺 json 字样），
+        // 重试三次结果一样，还白白拖长用户等待 —— 直接抛给调用方降级。
+        if (/LLM HTTP 4\d\d/.test(error instanceof Error ? error.message : '')) break;
+        if (attempt < attempts - 1) {
           // 指数退避 + 抖动：避免多个实例同时重试打到同一个上游
           const delay = BASE_BACKOFF_MS * 2 ** attempt + Math.random() * 200;
           await new Promise((resolve) => setTimeout(resolve, delay));

@@ -50,9 +50,35 @@ export interface IntentParamSpec {
   /** 正则抽取（命名组或第一个捕获组） */
   pattern?: RegExp;
   required?: boolean;
+  /**
+   * 枚举参数：值只能取 values 之一。
+   * aliases 用来把问句里的中文说法映射到值（如「车辆/车牌/交强险」→ vehicles），
+   * 键是别名，值是 values 中的某一项。
+   */
+  enum?: {
+    values: readonly string[];
+    aliases?: Readonly<Record<string, string>>;
+    /** 值 → 展示名，用于派生给模型看的参数说明（如 personnel → 人员） */
+    labels?: Readonly<Record<string, string>>;
+    defaultValue?: string;
+  };
   /** 缺省值策略：由 AiService 解析，不允许前端传入 */
   defaultValue?: { kind: 'latest_eval_month' } | { kind: 'current_year' } | { kind: 'ytd_months' } | { kind: 'next_days'; days: number };
   label?: string;
+}
+
+/**
+ * 代码处理器：不走 SQL 模板，直接调用业务服务
+ *
+ * 什么时候需要它：数据是 VARCHAR 文本、判定必须走应用层（例如证照有效期，「无」「2027-14-01」
+ * 这类脏值在 SQL 里字符串比较会被当成零日期、算成已过期）；或者口径已经存在于业务服务里、
+ * 重写一套必然与页面数字打架。
+ *
+ * 硬约束：处理器必须复用业务侧的数据范围校验，不能自己拼 WHERE。
+ */
+export interface IntentHandlerSpec {
+  /** 处理器标识，在 AiHandlerRegistry 里注册 */
+  kind: 'maintenance_expiry';
 }
 
 export interface IntentColumnSpec {
@@ -72,8 +98,26 @@ export interface Intent {
   params: Record<string, IntentParamSpec>;
   /** 需要的权限点；不填表示「登录即可」。无权限的意图不会出现在引导清单里 */
   auth?: string;
+  /**
+   * 多权限「任一即可」。用于跨类别的工具（例如到期清单同时覆盖人员与车辆）：
+   * 有人员权限的只能看人员，有资产权限的只能看车辆油机 —— 具体裁剪在处理器内部做。
+   */
+  authAny?: readonly string[];
   /** RAG 问答类意图没有 SQL */
   sql?: IntentSqlSpec;
+  /** 代码处理器（与 sql 二选一） */
+  handler?: IntentHandlerSpec;
+  /**
+   * 路由描述（给大模型看的一句话）：
+   *   `route: { desc }` = 上架，可被模型选中；
+   *   `route: null`      = 明确不上架（有执行能力但不开放给路由，例如知识库为空时的问答）；
+   *   `route` 缺省        = 忘了写 —— 启动时会在 /ai/status 的 router.missingDesc 里点名。
+   *
+   * 为什么不复用 summary：summary 是**结论模板**，带 `{top1.xxx}` 占位符，
+   * 塞进 prompt 既费 token 又干扰模型判断。所以仍需人工写一句"能回答什么问题"，
+   * 但只写在这一处，参数说明由 intent.params 确定性派生 —— 消除双写。
+   */
+  route?: { desc: string } | null;
   chart?: IntentChartSpec;
   /** 文字模板；占位符 `{字段名}` 只能引用结果字段或已解析参数，缺失时输出「—」而不是编造 */
   summary: string;

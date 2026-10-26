@@ -77,7 +77,26 @@ export function findDaysInInput(input: string): number | null {
   return days > 0 && days <= 365 ? days : null;
 }
 
+/**
+ * 枚举参数：从问句里认出属于哪一类。
+ * 先按别名（长词优先，避免「车辆保养」被「车辆」抢走），再按值本身匹配。
+ * 认不出来返回 null，由 applyDefaults 决定是否走默认值 —— 不猜。
+ */
+function matchEnum(spec: IntentParamSpec, input: string): string | null {
+  const bucket = spec.enum;
+  if (!bucket) return null;
+  const aliases = Object.entries(bucket.aliases ?? {}).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, value] of aliases) {
+    if (input.includes(alias.toLowerCase())) return value;
+  }
+  for (const value of bucket.values) {
+    if (input.includes(value.toLowerCase())) return value;
+  }
+  return null;
+}
+
 function extractOne(spec: IntentParamSpec, input: string, ctx: ParamExtractContext): string | number | null {
+  if (spec.enum) return matchEnum(spec, input);
   if (spec.from === 'city_dictionary') return findCityInInput(input, ctx.cityNames);
   if (spec.from === 'month') {
     const months = findMonthsInInput(input);
@@ -120,7 +139,9 @@ export function extractParams(
     }
     const value = extractOne(spec, input, ctx);
     params[name] = value;
-    if (value === null && spec.required && !spec.defaultValue) {
+    // enum 的默认值挂在 spec.enum 上，不算「没给默认」，否则派生字段会被误判为缺参
+    const hasDefault = Boolean(spec.defaultValue) || Boolean(spec.enum?.defaultValue);
+    if (value === null && spec.required && !hasDefault) {
       missing.push({ name, label: spec.label ?? name });
     }
   }

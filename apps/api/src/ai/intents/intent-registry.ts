@@ -37,6 +37,8 @@ export class IntentRegistry {
   private intents: readonly Intent[] = [];
   private rejected: RejectedIntent[] = [];
   private synonyms: Record<string, string> = {};
+  /** 有执行能力却没写 route.desc 的意图：规则能命中，但模型永远选不到 */
+  private missingRoute: string[] = [];
 
   constructor() {
     this.reload();
@@ -48,6 +50,15 @@ export class IntentRegistry {
 
   get rejectedIntents(): readonly RejectedIntent[] {
     return this.rejected;
+  }
+
+  /**
+   * 未写 route 的意图（route === undefined）。
+   * `route: null` 表示刻意不上架，不算缺失。这个列表通过 /ai/status 暴露，
+   * 让"新增意图忘了写描述"在启动后就能被看见，而不是等线上发现模型选不到。
+   */
+  get missingRouteDesc(): readonly string[] {
+    return this.missingRoute;
   }
 
   /** 重新加载（当前是常量目录，只用于测试与将来接 JSON 覆盖） */
@@ -73,6 +84,10 @@ export class IntentRegistry {
     this.intents = valid;
     this.rejected = rejected;
     this.synonyms = synonyms;
+    this.missingRoute = valid.filter((intent) => intent.route === undefined).map((intent) => intent.id);
+    if (this.missingRoute.length > 0) {
+      this.logger.warn(`AI_INTENT_ROUTE_DESC_MISSING ids=${this.missingRoute.join(',')}`);
+    }
     this.logger.log(`AI_INTENT_REGISTRY_READY intents=${valid.length} rejected=${rejected.length}`);
   }
 
@@ -84,11 +99,21 @@ export class IntentRegistry {
     if (!intent.id) return '缺少 id';
     if (seen.has(intent.id)) return `id 重复：${intent.id}`;
     if (!intent.triggers?.length) return '缺少 triggers';
+    // 禁止 fail-open：没有 auth 且没有 authAny 的意图会被 allows() 判成"登录即可"，
+    // 新人新增意图时忘填权限 = 全员可见。宁可让它启动时被剔除并报错。
+    if (!intent.auth && !(intent.authAny && intent.authAny.length > 0)) {
+      return '缺少 auth/authAny（不允许"登录即可"的意图，避免权限 fail-open）';
+    }
     if (!intent.summary) return '缺少 summary';
     if (intent.triggers.some((trigger) => trigger.trim().length < 2)) return 'trigger 长度必须 >= 2';
 
     if (!intent.sql) {
-      if (intent.category !== 'qa') return '非 qa 意图必须提供 sql';
+      // handler 是第二条合法执行路径：不写 SQL，直接调业务服务
+      if (!intent.handler) {
+        if (intent.category !== 'qa') return '非 qa 意图必须提供 sql 或 handler';
+        return null;
+      }
+      if (!intent.columns?.length) return 'handler 意图必须声明 columns（表格列由它决定）';
       return null;
     }
     try {
@@ -146,10 +171,23 @@ export class IntentRegistry {
     return best ? { intent: best.intent, matchedTriggers: best.hits, normalized } : null;
   }
 
+  /**
+   * 该账号能否使用这个意图。
+   * authAny 是「任一即可」（跨类别工具，例如到期清单同时覆盖人员与车辆），
+   * auth 是「必须持有」。两者都为空表示登录即可。
+   */
+  allows(auth: Pick<BizAuthContext, 'permissionCodes' | 'isSuperAdmin'>, intent: Intent): boolean {
+    if (auth.isSuperAdmin) return true;
+    if (intent.authAny && intent.authAny.length > 0) {
+      return intent.authAny.some((code) => auth.permissionCodes.has(code));
+    }
+    return !intent.auth || auth.permissionCodes.has(intent.auth);
+  }
+
   /** 未命中时的引导清单：只列出当前账号有权使用的意图（无权限的不展示，避免点了 403） */
   guideFor(auth: Pick<BizAuthContext, 'permissionCodes' | 'isSuperAdmin'>): GuideItem[] {
     return this.intents
-      .filter((intent) => !intent.auth || auth.isSuperAdmin || auth.permissionCodes.has(intent.auth))
+      .filter((intent) => this.allows(auth, intent))
       .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
       .map((intent) => ({
         id: intent.id,

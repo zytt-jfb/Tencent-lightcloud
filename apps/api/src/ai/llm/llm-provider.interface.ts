@@ -14,9 +14,34 @@ export interface LlmMessage {
   content: string;
 }
 
+/**
+ * 单次调用参数（全部可选，不传则用 provider 自身的默认值）
+ *
+ * 存在的理由：本模块的 LLM 只做「选工具」和「选措辞」两件事，
+ * 两者对响应格式、推理强度、超时的要求完全不同 ——
+ * 路由要 JSON、要 low effort、要 8 秒内返回；措辞可以慢一点但也要 JSON。
+ * 用一个全局配置糊住，必然有一边不合适。
+ */
+export interface LlmChatOptions {
+  /** 要求模型只输出 JSON 对象（OpenAI 兼容 response_format） */
+  jsonMode?: boolean;
+  /** 推理强度：路由这类短任务用 low，能省掉一大半 reasoning token */
+  effort?: 'low' | 'high' | 'max';
+  /** 输出 token 上限；不设时由服务端默认 */
+  maxTokens?: number;
+  /** 覆盖本次调用的超时（毫秒）；路由必须短超时，不能等默认的 120 秒 */
+  timeoutMs?: number;
+  /**
+   * 本次调用的最大尝试次数（含首次）。
+   * 注意这直接影响用户等待上限：总耗时 ≈ attempts × timeoutMs + 退避。
+   * 路由这类"失败就降级"的任务必须给 1，否则 8s×3 会变成 25s 的转圈。
+   */
+  maxAttempts?: number;
+}
+
 export interface LlmProvider {
   readonly name: string;
-  chat(messages: readonly LlmMessage[]): Promise<string>;
+  chat(messages: readonly LlmMessage[], options?: LlmChatOptions): Promise<string>;
   embed(text: string): Promise<number[]>;
   health(): Promise<{ ok: boolean; message: string }>;
 }

@@ -342,17 +342,33 @@ export class MaintenanceOverviewService {
     return Math.min(3650, Math.max(1, Number(windowDaysInput) || 30));
   }
 
-  async build(windowDaysInput: number | undefined, auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
-    return this.compute(this.normalizeWindow(windowDaysInput), auth);
+  /**
+   * @param kinds 只统计指定的资产类别；不传 = 全部三类。
+   *   查询方（AI 的到期清单）在"只问车辆保险"时不该顺带全扫人员与油机 ——
+   *   三类各一次全表扫描 + 应用层日期解析，白跑两次没必要。
+   *   工作台与到期台账都不传这个参数，行为不变。
+   */
+  async build(
+    windowDaysInput: number | undefined,
+    auth: BizAuthContext,
+    kinds?: AssetKind[],
+  ): Promise<MaintenanceOverviewResult> {
+    return this.compute(this.normalizeWindow(windowDaysInput), auth, kinds);
   }
 
   /**
    * 口径唯一来源：总览与到期台账都从这里出数。
    * 台账另写一套判定的话，「419」这种数字迟早对不上，而对不上的时候没人说得清是哪边错。
    */
-  private async compute(windowDays: number, auth: BizAuthContext): Promise<MaintenanceOverviewResult> {
+  private async compute(
+    windowDays: number,
+    auth: BizAuthContext,
+    kindsInput?: AssetKind[],
+  ): Promise<MaintenanceOverviewResult> {
     const today = shanghaiToday();
-    const kinds: AssetKind[] = ['personnel', 'vehicles', 'generators'];
+    const kinds: AssetKind[] = kindsInput && kindsInput.length > 0
+      ? kindsInput
+      : ['personnel', 'vehicles', 'generators'];
 
     // 6 个查询并发：每类资产 1 个组织汇总 + 1 个到期候选
     const [groups, candidates, unrecognized] = await Promise.all([

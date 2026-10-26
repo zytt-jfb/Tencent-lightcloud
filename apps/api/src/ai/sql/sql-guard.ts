@@ -177,6 +177,32 @@ export function assertScopePlaceholder(sql: string): void {
   }
 }
 
+/**
+ * FROM 段不允许「逗号连表」。
+ *
+ * 原因：extractTables 只认 `FROM x` / `JOIN x` 两种写法，
+ * `FROM biz_contracts c, biz_users u` 里的第二张表根本不会被提取，
+ * 白名单就会放行 —— 那么「表必须在白名单内」这条不变量就是假的。
+ *
+ * 现在没有模板这么写，所以不可利用；但模板是手写的，将来有人图省事写一句连表
+ * 就是静默穿透。与其补一套完整的 FROM 解析（正则做不可靠、上 AST 又太重），
+ * 不如直接把这种写法禁掉 —— 需要多表就用显式 JOIN。
+ *
+ * 判定范围限定在 FROM 到 WHERE/GROUP/ORDER/HAVING/LIMIT 之间，
+ * 并先剔除括号内容（派生表 `FROM (SELECT ...) t` 里的逗号不算连表）。
+ */
+export function assertNoCommaJoin(sql: string): void {
+  const re = /\bfrom\b([\s\S]*?)(?=\bwhere\b|\bgroup\s+by\b|\border\s+by\b|\bhaving\b|\blimit\b|$)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sql)) !== null) {
+    // 只剔除单层括号：模板里不会出现深层嵌套，出现深层嵌套时宁可误报也不放过
+    const outside = match[1].replace(/\([^()]*\)/g, '');
+    if (outside.includes(',')) {
+      throw new SqlGuardError('FROM 段不允许逗号连表，请改用显式 JOIN', 'TABLE_NOT_ALLOWED');
+    }
+  }
+}
+
 /** 执行前的完整校验（护栏入口） */
 export function guardSql(input: { sql: string; params: readonly unknown[]; maxRows: number }): {
   sql: string;
@@ -185,6 +211,7 @@ export function guardSql(input: { sql: string; params: readonly unknown[]; maxRo
 } {
   const sql = assertSingleStatement(input.sql);
   assertSelectOnly(sql);
+  assertNoCommaJoin(sql);
   const tables = assertTablesAllowed(sql);
   const limit = assertLimit(sql, input.maxRows);
   assertParamArity(sql, input.params);

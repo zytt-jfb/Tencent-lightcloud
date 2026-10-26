@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CityEntity } from '../../main-data/city.entity';
+import { cityAliases } from '../../common/org-name';
 import type { BizAuthContext } from '../../rbac/rbac.service';
 import type { SqlParam } from '../sql/readonly-datasource';
 
@@ -12,6 +13,8 @@ export interface ScopePredicate {
   params: SqlParam[];
   /** 人类可读的范围描述，写进响应让用户知道自己看到的是哪个范围 */
   label: string;
+  /** 降级说明：问句里指定了地市但没能定位时，告诉用户"按全部范围查了"，而不是静默 */
+  notice?: string;
   /** 是否全量（超管/省级全量） */
   all: boolean;
 }
@@ -85,19 +88,36 @@ export class ScopeGuardService {
     }
     for (const denied of dataScope?.deniedCityIds ?? []) cityIds.delete(denied);
 
-    // 指定地市下钻：仅当问句中带城市名、且该城市落在授权集合内才生效；否则直接拒绝，杜绝越权
+    // 指定地市下钻：命中授权集合才生效。
+    //
+    // 未命中时**不再抛 403**，而是降级到全部授权范围并附一句提示。
+    // 原因：地市是从问句里按名字 includes 匹配出来的（"济南"这种 2 字短名），
+    // 误命中的概率不低；把一次误匹配变成 403，用户看到的是"我没权限"，
+    // 而他其实只是想问一个普通问题 —— 这比"多给了点数据 + 一句说明"糟得多。
+    // 注意：这不会越权，降级后的范围仍然只是他自己的授权集合。
+    let notice: string | undefined;
     if (overrideCityName && overrideCityName.trim()) {
-      const city = await this.resolveOverrideCity(overrideCityName.trim(), cityIds, all);
-      if (!city) {
-        throw new ForbiddenException(`无权查看「${overrideCityName.trim()}」的数据，或该地市不在你的授权范围内`);
+      const requestedName = overrideCityName.trim();
+      const city = await this.resolveOverrideCity(requestedName, cityIds, all);
+      if (city) {
+        if (spec.valueType === 'city_id') {
+          return { sql: `${column} = ?`, params: [city.id], label: city.name, all: false };
+        }
+        // 地名列要按别名展开：「济南市」与「济南」在不同表里都出现过
+        const aliases = cityAliases(city.name);
+        return {
+          sql: `${column} IN (${aliases.map(() => '?').join(',')})`,
+          params: aliases,
+          label: city.name,
+          all: false,
+        };
       }
-      const value = spec.valueType === 'city_id' ? city.id : city.name;
-      return { sql: `${column} = ?`, params: [value], label: city.name, all: false };
+      notice = `未能在你的授权范围内定位「${requestedName}」，已按你的全部授权范围查询`;
     }
 
-    // 无下钻：沿用原有逻辑
+    // 无下钻（或下钻未命中）：沿用原有逻辑
     if (all) {
-      return { sql: '1=1', params: [], label: '全部地市', all: true };
+      return { sql: '1=1', params: [], label: '全部地市', all: true, notice };
     }
     if (cityIds.size === 0) {
       // 不给「空范围就等于全量」这种默认行为 —— 那是最经典的越权漏洞
@@ -111,26 +131,37 @@ export class ScopeGuardService {
         params: ids,
         label: `${ids.length} 个地市`,
         all: false,
+        notice,
       };
     }
 
-    // city_name 模式：把 id 换成地名（biz_performance_record.city 是 varchar 地名）
+    // city_name 模式：把 id 换成地名
+    //
+    // **必须按别名展开**：biz_cities.name 是「潍坊市」这种规范全名，而
+    // biz_performance_record.city 存的是「潍坊」（导入时按表头文本落库）。
+    // 只拼全名会让所有地市账号的考核查询恒定 0 行，且界面还显示「3 个地市」，
+    // 用户只会以为"这个月没数据" —— 静默的错答案比报错危险得多。
     const dictionaries = await this.loadCities();
     const nameById = new Map(dictionaries.map((row) => [row.id, row.name]));
-    const names: string[] = [];
+    const names = new Set<string>();
     for (const id of cityIds) {
       const name = nameById.get(id);
-      if (name) names.push(name);
-      else this.logger.warn(`AI_SCOPE_CITY_NAME_MISSING cityId=${id}`);
+      if (!name) {
+        this.logger.warn(`AI_SCOPE_CITY_NAME_MISSING cityId=${id}`);
+        continue;
+      }
+      for (const alias of cityAliases(name)) names.add(alias);
     }
-    if (names.length === 0) {
+    if (names.size === 0) {
       throw new ForbiddenException('数据范围内没有可用的地市名称映射');
     }
     return {
-      sql: `${column} IN (${names.map(() => '?').join(',')})`,
-      params: names,
-      label: `${names.length} 个地市`,
+      sql: `${column} IN (${[...names].map(() => '?').join(',')})`,
+      params: [...names],
+      // 标签用「地市数」而不是别名数，否则会显示成「6 个地市」把用户吓一跳
+      label: `${new Set([...cityIds].map((id) => nameById.get(id)).filter(Boolean)).size} 个地市`,
       all: false,
+      notice,
     };
   }
 
