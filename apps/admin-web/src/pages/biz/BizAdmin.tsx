@@ -27,6 +27,7 @@ const MODULE_LABEL: Record<string, string> = {
   announcement: '公告发布', message: '消息中心',
   assessment: '工程管理',
   performance: '维护管理 / 月度考核',
+  assistant: '智能助手 / 批量导入',
   operationHome: '经营管理 / 首页', operationAnalysis: '经营管理 / 数据分析', operationContract: '经营管理 / 合同管理', operationOrder: '经营管理 / 订单管理', operationCompletion: '经营管理 / 完工管理', operationCost: '经营管理 / 成本管理',
   systemMessage: '系统设置 / 消息中心', systemAnnouncement: '系统设置 / 公告管理', systemUser: '系统设置 / 账号与权限', systemSettings: '系统设置 / 参数设置', systemRegion: '系统设置 / 省市设置',
 };
@@ -42,6 +43,7 @@ const MODULE_DESCRIPTION: Record<string, string> = {
   completion: '线下完工填报、提交和审核', cost: '地市成本填报、退回和导出', user: '账号创建、停用、密码和数据范围', settings: '系统参数和预警设置',
   module: '业务模块入口配置', role: '角色与账号权限配置', region: '省份与地市字典的新增、修改和删除',
   maintenance: '人员、车辆、油机维护数据与月度考核（含模块入口）',
+  assistant: '批量导入人员、车辆、油机与各模块台账，需单独授权',
   announcement: '公告草稿、发布、撤回和范围管理', message: '流程消息、公告查看和已读处理',
 };
 type PermissionItem = { code: string; name: string; action: string };
@@ -460,6 +462,32 @@ export default function BizAdmin() {
                 </div>
               </div>
             ))}
+
+            {/* 智能助手不属于四大模块，单独成组：组内只有一个动作码（execute），
+                所以只给「无权限 / 可操作」两档 —— 三档里的「可查看」会被保存逻辑解释成 deny，
+                管理员选了反而关上，是个陷阱。 */}
+            {groupByKey.has('assistant') && (
+              <div className="perm-children">
+                <div className="perm-section-title">智能助手 · 功能细调</div>
+                <div className="perm-module-list">
+                  <div className={`perm-row${levelOf('assistant') === 'none' ? ' is-off' : ''}`}>
+                    <div className="perm-row-main">
+                      <span className="perm-row-label">批量导入</span>
+                      <span className="perm-row-desc">
+                        人员、车辆、油机与各模块台账的批量导入。需单独授权，且与该模块的写权限同时具备才可用。
+                      </span>
+                    </div>
+                    <Segmented
+                      size="small"
+                      value={permDetail.roleCode === 'super_admin' ? 'edit' : levelOf('assistant')}
+                      disabled={permDetail.roleCode === 'super_admin'}
+                      options={[{ value: 'none', label: '无权限' }, { value: 'edit', label: '可操作' }]}
+                      onChange={(value) => setModuleLevels((prev) => ({ ...prev, assistant: value as ModuleLevel }))}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Drawer>
